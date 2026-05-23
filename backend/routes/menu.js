@@ -43,6 +43,67 @@ router.get("/dummy-stock", async (_req, res) => {
   });
 });
 
+// POST /api/menu/analyze-plate - Analyze combined Piringku selection with AI
+router.post("/analyze-plate", async (req, res) => {
+  try {
+    const menuIds = Array.isArray(req.body?.menuIds)
+      ? req.body.menuIds.map((id) => Number(id)).filter(Number.isFinite)
+      : [];
+
+    if (menuIds.length === 0) {
+      return res.status(400).json({ error: "Pilih minimal satu menu" });
+    }
+
+    const placeholders = menuIds.map(() => "?").join(",");
+    const [rows] = await db.query(
+      `
+        SELECT m.id, m.nama, m.kategori, m.deskripsi,
+               n.kalori, n.protein, n.lemak, n.karbohidrat, n.serat, n.gula
+        FROM menus m
+        LEFT JOIN menu_nutrition n ON m.id = n.menu_id
+        WHERE m.id IN (${placeholders})
+      `,
+      menuIds,
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Menu tidak ditemukan" });
+    }
+
+    const nutrition = rows.reduce(
+      (acc, item) => {
+        acc.kalori += Number(item.kalori || 0);
+        acc.protein += Number(item.protein || 0);
+        acc.lemak += Number(item.lemak || 0);
+        acc.karbohidrat += Number(item.karbohidrat || 0);
+        acc.serat += Number(item.serat || 0);
+        acc.gula += Number(item.gula || 0);
+        return acc;
+      },
+      { kalori: 0, protein: 0, lemak: 0, karbohidrat: 0, serat: 0, gula: 0 },
+    );
+
+    const target = String(req.body?.target || "Target MBG");
+    const menuNames = rows.map((item) => item.nama).join(" + ");
+    const analysis = await aiService.analyzeNutrition(
+      nutrition,
+      `Piringku: ${menuNames}`,
+      {
+        kategori: target,
+        deskripsi: `Analisis gabungan ${rows.length} menu untuk ${target}. Menu: ${menuNames}`,
+      },
+    );
+
+    res.json({
+      ...analysis,
+      combined_menu_ids: menuIds,
+      combined_menu_count: rows.length,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/menu/:id - Get single menu with ingredients and nutrition
 router.get("/:id", async (req, res) => {
   try {

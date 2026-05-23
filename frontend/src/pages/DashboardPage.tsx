@@ -1,19 +1,30 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { motion } from "framer-motion";
 import {
-  Activity,
+  AlertTriangle,
   ArrowRight,
+  Baby,
   CalendarDays,
   CheckCircle2,
   ChefHat,
   Clock3,
+  FlaskConical,
   Gauge,
-  GlassWater,
+  HeartPulse,
+  Info,
+  Leaf,
+  Loader2,
+  Milk,
+  Plus,
+  RefreshCw,
+  Scale,
   Search,
+  Sparkles,
+  Target,
   Trash2,
-  TrendingUp,
   Users,
   UtensilsCrossed,
+  UserRound,
   X,
 } from "lucide-react";
 import {
@@ -24,7 +35,13 @@ import {
 } from "../components/icons/NutrientIcons";
 import pregnantImage from "../assets/images/MBG-Posyandu-akuratnews.id_.jpeg";
 import studentsImage from "../assets/images/Sekolah_Dasar.jpeg";
-import type { ManualMacronutrient, Menu, MenuStats, PageView } from "../types";
+import type {
+  AIAnalysisResult,
+  ManualMacronutrient,
+  Menu,
+  MenuStats,
+  PageView,
+} from "../types";
 import {
   getPorsiLabel,
   inferMenuPorsi,
@@ -34,7 +51,6 @@ import {
   saveMenuMetaMap,
   type MenuMetaEntry,
   type MenuPorsi,
-  type MenuType,
 } from "../utils/menuMeta";
 
 const API = "http://localhost:3002/api/menu";
@@ -48,8 +64,8 @@ type Kelompok =
   | "siswa"
   | "balita"
   | "ibu_hamil"
-  | "porsi_besar"
-  | "porsi_kecil";
+  | "ibu_menyusui"
+  | "lansia";
 const STANDAR: Record<
   Kelompok,
   {
@@ -69,21 +85,29 @@ const STANDAR: Record<
     karbo: 90,
     lemak: 22,
   },
-  porsi_besar: {
-    label: "Porsi Besar",
-    kalori: 820,
-    protein: 34,
-    karbo: 100,
+  ibu_menyusui: {
+    label: "Ibu Menyusui",
+    kalori: 800,
+    protein: 32,
+    karbo: 95,
     lemak: 24,
   },
-  porsi_kecil: {
-    label: "Porsi Kecil",
-    kalori: 420,
-    protein: 16,
-    karbo: 58,
-    lemak: 14,
+  lansia: {
+    label: "Lansia",
+    kalori: 520,
+    protein: 24,
+    karbo: 70,
+    lemak: 16,
   },
 };
+
+const TARGET_TABS: Array<{ key: Kelompok; icon: typeof Users }> = [
+  { key: "siswa", icon: Users },
+  { key: "balita", icon: Baby },
+  { key: "ibu_hamil", icon: HeartPulse },
+  { key: "ibu_menyusui", icon: Milk },
+  { key: "lansia", icon: UserRound },
+];
 
 interface DayPlan {
   makananIds: number[];
@@ -94,7 +118,6 @@ type WeeklyPlan = Record<string, DayPlan>;
 type WeeklyPlanByLocation = Record<string, WeeklyPlan>;
 type SavedScheduleMap = Record<string, string>;
 type HolidayMap = Record<string, string>;
-type MenuTypeMap = Record<number, MenuType>;
 type MenuMetaMap = Record<number, MenuMetaEntry>;
 
 interface WeekDay {
@@ -157,8 +180,8 @@ function normalizeDayPlan(raw: unknown): DayPlan {
   };
 }
 
-function toTypeKey(type: MenuType): keyof DayPlan {
-  return type === "minuman" ? "minumanIds" : "makananIds";
+function getDayMenuIds(day: DayPlan) {
+  return Array.from(new Set([...day.makananIds, ...day.minumanIds]));
 }
 
 function toDateKey(date: Date) {
@@ -322,6 +345,70 @@ function MiniDonut({
   );
 }
 
+interface DonutSegment {
+  key: string;
+  label: string;
+  value: number;
+  color: string;
+}
+
+function CompositionDonut({
+  segments,
+  centerValue,
+  centerLabel,
+  sizeClass = "h-52 w-52",
+}: {
+  segments: DonutSegment[];
+  centerValue: string;
+  centerLabel: string;
+  sizeClass?: string;
+}) {
+  const total = segments.reduce((sum, item) => sum + item.value, 0);
+  const radius = 42;
+  const circumference = 2 * Math.PI * radius;
+  let offset = 0;
+
+  return (
+    <div className={`relative mx-auto ${sizeClass}`}>
+      <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
+        <circle
+          cx="50"
+          cy="50"
+          r={radius}
+          fill="none"
+          stroke="#e8eee8"
+          strokeWidth="12"
+        />
+        {segments.map((segment) => {
+          const length = total > 0 ? (segment.value / total) * circumference : 0;
+          const node = (
+            <circle
+              key={segment.key}
+              cx="50"
+              cy="50"
+              r={radius}
+              fill="none"
+              stroke={segment.color}
+              strokeLinecap="round"
+              strokeWidth="12"
+              strokeDasharray={`${length} ${circumference - length}`}
+              strokeDashoffset={-offset}
+            />
+          );
+          offset += length;
+          return node;
+        })}
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+        <span className="text-2xl font-black text-ink-700">{centerValue}</span>
+        <span className="mt-1 text-[11px] font-bold uppercase tracking-[0.12em] text-ink-400">
+          {centerLabel}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 interface DashboardPageProps {
   onNavigate: (p: PageView) => void;
 }
@@ -416,12 +503,18 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     {},
   );
   const [menuMetaMap, setMenuMetaMap] = useState<MenuMetaMap>({});
-  const [menuTypeFilter, setMenuTypeFilter] = useState<"all" | MenuType>("all");
   const [draggingMenuId, setDraggingMenuId] = useState<number | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
   const [plateManualMacrosMap, setPlateManualMacrosMap] = useState<
     Record<number, ManualMacronutrient[]>
   >({});
+  const [plateIngredientCountMap, setPlateIngredientCountMap] = useState<
+    Record<number, number>
+  >({});
+  const [plateAiAnalysis, setPlateAiAnalysis] =
+    useState<AIAnalysisResult | null>(null);
+  const [plateAiLoading, setPlateAiLoading] = useState(false);
+  const [plateAiError, setPlateAiError] = useState<string | null>(null);
   const dragGhostRef = useRef<HTMLDivElement | null>(null);
   const [showDistributionModal, setShowDistributionModal] = useState(false);
   const [showSaveScheduleConfirm, setShowSaveScheduleConfirm] = useState(false);
@@ -582,14 +675,6 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     [menus],
   );
 
-  const resolvedMenuTypes = useMemo(() => {
-    const result: MenuTypeMap = {};
-    menus.forEach((menu) => {
-      result[menu.id] = menuMetaMap[menu.id]?.type || inferMenuType(menu);
-    });
-    return result;
-  }, [menus, menuMetaMap]);
-
   const resolvedMenuPorsi = useMemo(() => {
     const result: Record<number, MenuPorsi> = {};
     menus.forEach((menu) => {
@@ -603,9 +688,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     () =>
       Object.values(weeklyPlan).reduce((acc, day) => {
         const normalized = normalizeDayPlan(day);
-        return (
-          acc + normalized.makananIds.length + normalized.minumanIds.length
-        );
+        return acc + getDayMenuIds(normalized).length;
       }, 0),
     [weeklyPlan],
   );
@@ -618,7 +701,50 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   );
 
   useEffect(() => {
-    const missingIds = plateMenuIds.filter((id) => !plateManualMacrosMap[id]);
+    if (plateMenuIds.length === 0) {
+      setPlateAiAnalysis(null);
+      setPlateAiError(null);
+      setPlateAiLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setPlateAiLoading(true);
+    setPlateAiError(null);
+
+    fetch(`${API}/analyze-plate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        menuIds: plateMenuIds,
+        target: STANDAR[kelompok].label,
+      }),
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Analisis AI gagal");
+        setPlateAiAnalysis(data as AIAnalysisResult);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setPlateAiError(
+          err instanceof Error ? err.message : "Analisis AI gagal diproses",
+        );
+        setPlateAiAnalysis(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPlateAiLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [kelompok, plateMenuIds]);
+
+  useEffect(() => {
+    const missingIds = plateMenuIds.filter(
+      (id) =>
+        !plateManualMacrosMap[id] || plateIngredientCountMap[id] === undefined,
+    );
     if (missingIds.length === 0) return;
 
     let active = true;
@@ -632,8 +758,15 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
             manual: Array.isArray(data?.manual_macronutrients)
               ? (data.manual_macronutrients as ManualMacronutrient[])
               : [],
+            ingredientsCount: Array.isArray(data?.ingredients)
+              ? data.ingredients.length
+              : 0,
           }))
-          .catch(() => ({ menuId, manual: [] as ManualMacronutrient[] })),
+          .catch(() => ({
+            menuId,
+            manual: [] as ManualMacronutrient[],
+            ingredientsCount: 0,
+          })),
       ),
     ).then((results) => {
       if (!active) return;
@@ -645,12 +778,20 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         });
         return next;
       });
+
+      setPlateIngredientCountMap((prev) => {
+        const next = { ...prev };
+        results.forEach((item) => {
+          next[item.menuId] = item.ingredientsCount;
+        });
+        return next;
+      });
     });
 
     return () => {
       active = false;
     };
-  }, [plateManualMacrosMap, plateMenuIds]);
+  }, [plateIngredientCountMap, plateManualMacrosMap, plateMenuIds]);
 
   const plateNutrition = useMemo(
     () =>
@@ -667,12 +808,6 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     [piringkuMenus],
   );
 
-  const plateAkgPercent = Math.max(
-    0,
-    Math.round((plateNutrition.kalori / STANDAR[kelompok].kalori) * 100),
-  );
-  const plateAkgStatus = getAkgStatus(plateAkgPercent);
-
   const microStatus = useMemo(() => {
     const dynamicMap: Record<
       string,
@@ -683,6 +818,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         unit: string;
         color: string;
         value: number;
+        percent: number;
         statusLabel: string;
         statusClass: string;
       }
@@ -715,6 +851,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
             unit: macro.satuan || "g",
             color,
             value: 0,
+            percent: 0,
             statusLabel: "Baik",
             statusClass: "text-emerald-600",
           };
@@ -734,6 +871,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       if (item.value <= 0 || maxValue <= 0) {
         return {
           ...item,
+          percent: 0,
           statusLabel: "Kurang",
           statusClass: "text-emerald-400",
         };
@@ -743,6 +881,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       if (ratio >= 0.8) {
         return {
           ...item,
+          percent: Math.round(ratio * 100),
           statusLabel: "Baik",
           statusClass: "text-emerald-600",
         };
@@ -751,6 +890,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       if (ratio >= 0.5) {
         return {
           ...item,
+          percent: Math.round(ratio * 100),
           statusLabel: "Cukup",
           statusClass: "text-emerald-600",
         };
@@ -758,25 +898,12 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
 
       return {
         ...item,
+        percent: Math.round(ratio * 100),
         statusLabel: "Kurang",
         statusClass: "text-emerald-400",
       };
     });
   }, [piringkuMenus, plateManualMacrosMap]);
-
-  const plateNote =
-    plateAkgStatus.label === "Optimal"
-      ? "Komposisi sudah optimal, pertahankan keseimbangan dan variasikan sumber sayur serta buah."
-      : plateAkgStatus.label === "Cukup"
-        ? "Komposisi sudah mendekati target. Tambahkan lauk atau sumber energi sesuai kebutuhan penerima."
-        : plateAkgStatus.label === "Sangat Kurang"
-          ? "Komposisi masih terlalu rendah. Tambahkan lauk, sayur, dan sumber energi agar piring lebih seimbang."
-          : plateAkgStatus.label === "Mulai Berlebih"
-            ? "Komposisi mulai melewati target. Kurangi porsi sumber energi atau lemak sebelum distribusi."
-            : "Komposisi terlalu tinggi untuk target ini. Sesuaikan porsi agar tetap aman dan mudah diterapkan.";
-
-  const plateTip =
-    "Padukan protein hewani, sayur hijau, dan buah warna-warni untuk menyeimbangkan piring dengan cara yang mudah dipahami.";
 
   const std = STANDAR[kelompok];
   const rows = [
@@ -804,10 +931,32 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       target: std.lemak,
       unit: "g",
     },
+  ].map((row) => {
+    const percent = row.target > 0 ? Math.round((row.val / row.target) * 100) : 0;
+    return {
+      ...row,
+      percent,
+      status: getAkgStatus(percent),
+    };
+  });
+
+  const visibleRows = rows.filter((row) => row.val > 0);
+  const aggregateScores = [
+    ...visibleRows.map((row) => Math.min(130, Math.max(0, row.percent))),
+    ...microStatus.map((item) => item.percent),
   ];
+  const plateAkgPercent =
+    aggregateScores.length > 0
+      ? Math.round(
+          aggregateScores.reduce((sum, value) => sum + value, 0) /
+            aggregateScores.length,
+        )
+      : 0;
+  const plateAkgStatus = getAkgStatus(plateAkgPercent);
 
   const macroTotal =
     plateNutrition.protein + plateNutrition.karbo + plateNutrition.lemak;
+  const microTotal = microStatus.reduce((sum, item) => sum + item.value, 0);
 
   const slices = [
     {
@@ -828,7 +977,16 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       value: plateNutrition.lemak,
       color: "#f59e0b",
     },
-  ];
+  ].filter((slice) => slice.value > 0);
+
+  const aiWarnings =
+    plateAiAnalysis?.rekomendasi.filter((rec) => rec.severity !== "success") ||
+    [];
+  const aiSuccess =
+    plateAiAnalysis?.rekomendasi.find((rec) => rec.severity === "success") ||
+    null;
+  const aiTips = aiWarnings.length > 0 ? aiWarnings : plateAiAnalysis?.rekomendasi || [];
+  const retryPlateAi = () => setPlateMenuIds((prev) => [...prev]);
 
   const addMenu = (id: number) =>
     setPlateMenuIds((prev) =>
@@ -838,39 +996,18 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const removeMenu = (id: number) =>
     setPlateMenuIds((prev) => prev.filter((x) => x !== id));
 
-  const setMenuType = (menuId: number, type: MenuType) => {
-    setMenuMetaMap((prev) => {
-      const next = { ...prev };
-      const fallbackPorsi = inferMenuPorsi(menuLookup.get(menuId)?.kalori);
-      next[menuId] = {
-        type,
-        porsi: prev[menuId]?.porsi || fallbackPorsi,
-        updatedAt: new Date().toISOString(),
-      };
-      saveMenuMetaMap(next);
-      return next;
-    });
-  };
-
-  const assignMenuToDay = (
-    dateKey: string,
-    menuId: number,
-    explicitType?: MenuType,
-  ) => {
-    const type = explicitType || resolvedMenuTypes[menuId] || "makanan";
-    const typeKey = toTypeKey(type);
-
+  const assignMenuToDay = (dateKey: string, menuId: number) => {
     setWeeklyPlanByLocation((prevByLocation) => {
       const prev = prevByLocation[activeLocationId] || {};
       const dayPlan = normalizeDayPlan(prev[dateKey]);
-      const current = dayPlan[typeKey];
+      const current = getDayMenuIds(dayPlan);
       if (current.includes(menuId)) return prevByLocation;
 
       const nextPlan = {
         ...prev,
         [dateKey]: {
-          ...dayPlan,
-          [typeKey]: [...current, menuId].slice(-4),
+          makananIds: [...current, menuId].slice(-4),
+          minumanIds: [],
         },
       };
 
@@ -881,22 +1018,16 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     });
   };
 
-  const removeMenuFromDay = (
-    dateKey: string,
-    type: MenuType,
-    menuId: number,
-  ) => {
-    const typeKey = toTypeKey(type);
-
+  const removeMenuFromDay = (dateKey: string, menuId: number) => {
     setWeeklyPlanByLocation((prevByLocation) => {
       const prev = prevByLocation[activeLocationId] || {};
       const dayPlan = normalizeDayPlan(prev[dateKey]);
-      const updated = dayPlan[typeKey].filter((id) => id !== menuId);
+      const updated = getDayMenuIds(dayPlan).filter((id) => id !== menuId);
       const nextPlan = {
         ...prev,
         [dateKey]: {
-          ...dayPlan,
-          [typeKey]: updated,
+          makananIds: updated,
+          minumanIds: [],
         },
       };
 
@@ -917,9 +1048,9 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     }));
   };
 
-  const getMenusByDay = (dateKey: string, type: MenuType) => {
+  const getMenusByDay = (dateKey: string) => {
     const dayPlan = normalizeDayPlan(weeklyPlan[dateKey]);
-    const ids = dayPlan[toTypeKey(type)];
+    const ids = getDayMenuIds(dayPlan);
     return ids
       .map((id) => menuLookup.get(id))
       .filter((menu): menu is Menu => Boolean(menu));
@@ -940,13 +1071,11 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
 
   const filtered = menus.filter((m) => {
     const cleanName = sanitizeMenuName(m.nama);
-    const bySearch =
+    return (
       !search ||
       cleanName.toLowerCase().includes(search.toLowerCase()) ||
-      m.nama.toLowerCase().includes(search.toLowerCase());
-    const type = resolvedMenuTypes[m.id] || "makanan";
-    const byType = menuTypeFilter === "all" || type === menuTypeFilter;
-    return bySearch && byType;
+      m.nama.toLowerCase().includes(search.toLowerCase())
+    );
   });
 
   const plateMenuOptions = useMemo(() => {
@@ -1055,11 +1184,9 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const handleCardDragStart = (
     e: DragEvent<HTMLDivElement>,
     menuId: number,
-    menuType: MenuType,
   ) => {
     setDraggingMenuId(menuId);
     e.dataTransfer.setData("menu-id", String(menuId));
-    e.dataTransfer.setData("menu-type", menuType);
     e.dataTransfer.effectAllowed = "copy";
 
     const source = e.currentTarget;
@@ -1199,449 +1326,702 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15 }}
-          className="card rounded-4xl border border-ink-100/60 bg-white/90 p-5 shadow-sm"
+          className="card overflow-hidden rounded-[34px] border border-ink-100/60 bg-white/95 shadow-sm"
         >
-          <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
-                Personal Plate Monitor
-              </p>
-              <h2 className="mt-2 text-lg font-bold text-ink-700">
-                Monitor Piringku vs AKG 2019
-              </h2>
-              <p className="mt-1 text-sm leading-6 text-ink-400">
-                Pilih menu atau seret kartu dari daftar bawah ke area piringku.
-              </p>
-            </div>
-            <div className="rounded-[20px] border border-forest-100 bg-forest-50 px-4 py-3 text-right">
-              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-forest-700/70">
-                Target
-              </p>
-              <p className="mt-1 text-sm font-semibold text-forest-900">
-                {STANDAR[kelompok].label}
-              </p>
-            </div>
-          </div>
-
-          <div className="pill-toggle mb-4 rounded-[22px] border border-ink-100 bg-white p-1">
-            {(Object.keys(STANDAR) as Kelompok[]).map((k) => (
-              <button
-                key={k}
-                onClick={() => setKelompok(k)}
-                data-active={kelompok === k}
-                className="flex-1"
-              >
-                {STANDAR[k].label}
-              </button>
-            ))}
-          </div>
-
-          <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-[1.2fr_0.8fr]">
-            <button
-              onClick={() => setShowPlateMenuModal(true)}
-              className="flex items-center justify-between rounded-[18px] border border-ink-100 bg-white px-4 py-3 text-left text-sm text-gray-700 shadow-sm transition hover:border-forest-200 hover:bg-forest-50"
-            >
-              <span className="font-semibold">
-                {selectedMenuId
-                  ? sanitizeMenuName(
-                      menuLookup.get(selectedMenuId)?.nama || "Pilih menu",
-                    )
-                  : "Pilih menu untuk Piringku"}
-              </span>
-              <Search className="h-4 w-4 text-forest-700" />
-            </button>
-            <button
-              onClick={() => selectedMenuId && addMenu(selectedMenuId)}
-              className="btn-primary px-4 py-3 text-sm"
-            >
-              Tambah ke Piringku
-            </button>
-          </div>
-
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault();
-              const id = Number(e.dataTransfer.getData("menu-id"));
-              if (id) addMenu(id);
-            }}
-            className="mb-5 flex min-h-16 flex-wrap gap-2 rounded-[24px] border border-dashed border-forest-300 bg-[linear-gradient(180deg,#f7fbf7_0%,#ffffff_100%)] p-4"
-          >
-            {piringkuMenus.map((m) => {
-              const thumbUrl = resolveMenuImageUrl(m.gambar_url);
-              return (
-                <div
-                  key={m.id}
-                  className="flex items-center gap-3 rounded-[22px] border border-ink-100 bg-white px-3 py-2.5 text-[12px] shadow-sm"
-                >
-                  {thumbUrl ? (
-                    <img
-                      src={thumbUrl}
-                      alt={sanitizeMenuName(m.nama) || m.nama}
-                      className="h-12 w-12 rounded-2xl object-cover"
-                    />
-                  ) : (
-                    <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 text-gray-400">
-                      <ChefHat className="h-5 w-5" />
-                    </span>
-                  )}
-                  <div className="min-w-0">
-                    <p className="truncate font-bold text-gray-700">
-                      {sanitizeMenuName(m.nama) || m.nama}
-                    </p>
-                    <p className="text-[11px] text-gray-400">
-                      {m.kalori ?? 0} kkal
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => removeMenu(m.id)}
-                    className="ml-auto flex h-9 w-9 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100 hover:text-emerald-900"
-                    title="Hapus dari Piringku"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              );
-            })}
-            {piringkuMenus.length === 0 && (
-              <span className="text-xs text-gray-400">
-                Belum ada menu, pilih atau drag dari daftar bawah
-              </span>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.05fr_0.95fr]">
-            <div className="rounded-3xl border border-ink-100 bg-white/85 p-4 shadow-sm">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
-                    Ringkasan Gizi
-                  </p>
-                  <h3 className="mt-1 text-base font-bold text-ink-700">
-                    Total AKG Harian
-                  </h3>
-                </div>
-                <div
-                  className={`rounded-full px-3 py-1.5 text-xs font-semibold ${plateAkgStatus.badgeClass}`}
-                >
-                  {plateAkgStatus.label}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-[0.88fr_1.12fr]">
-                <div className="rounded-3xl border border-forest-100 bg-linear-to-b from-forest-50 to-white px-4 py-5 text-center">
-                  <motion.div
-                    className="relative mx-auto flex h-48 w-48 items-center justify-center"
-                    animate={{ scale: plateNutrition.kalori > 0 ? 1 : 0.98 }}
-                    transition={{ duration: 0.35, ease: "easeOut" }}
-                  >
-                    <svg viewBox="0 0 44 44" className="h-48 w-48 -rotate-90">
-                      <circle
-                        cx="22"
-                        cy="22"
-                        r="18.5"
-                        fill="none"
-                        stroke="#e5efe5"
-                        strokeWidth="6"
-                      />
-                      <motion.circle
-                        cx="22"
-                        cy="22"
-                        r="18.5"
-                        fill="none"
-                        stroke={plateAkgStatus.ringColor}
-                        strokeLinecap="round"
-                        strokeWidth="6"
-                        initial={{ pathLength: 0 }}
-                        animate={{
-                          pathLength: Math.min(1, plateAkgPercent / 100),
-                        }}
-                        transition={{ duration: 0.85, ease: "easeOut" }}
-                      />
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-forest-700 shadow-sm">
-                        <Gauge className="h-5 w-5" />
-                      </div>
-                      <motion.p
-                        key={plateAkgPercent}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.35, ease: "easeOut" }}
-                        className={`mt-2 text-4xl font-black ${plateAkgStatus.textClass}`}
-                      >
-                        {plateAkgPercent}%
-                      </motion.p>
-                      <p
-                        className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${plateAkgStatus.textClass}`}
-                      >
-                        {plateAkgStatus.label}
-                      </p>
-                    </div>
-                  </motion.div>
-                  <p className="mt-3 text-sm font-semibold text-ink-700">
-                    {Math.round(plateNutrition.kalori)} /{" "}
-                    {STANDAR[kelompok].kalori} kkal
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-ink-400">
-                    Disesuaikan dengan standar {STANDAR[kelompok].label}.
-                  </p>
-                </div>
-
-                <div className="space-y-3 rounded-3xl border border-ink-100 bg-white/80 p-4 shadow-sm">
-                  {rows.map((r) => {
-                    const pct = Math.max(
-                      0,
-                      Math.round((r.val / r.target) * 100),
-                    );
-                    const status = getAkgStatus(pct);
-
-                    return (
-                      <div
-                        key={r.label}
-                        className="rounded-2xl border border-gray-100 bg-white px-4 py-3.5"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex min-w-0 items-start gap-2">
-                            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-forest-50 text-forest-800">
-                              {r.label === "Kalori" ? (
-                                <CalorieIcon className="h-4 w-4" />
-                              ) : r.label === "Protein" ? (
-                                <ProteinIcon className="h-4 w-4" />
-                              ) : r.label === "Lemak" ? (
-                                <FatIcon className="h-4 w-4" />
-                              ) : (
-                                <CarboIcon className="h-4 w-4" />
-                              )}
-                            </span>
-                            <div className="min-w-0">
-                              <p className="text-sm font-semibold text-gray-700">
-                                {r.label}
-                              </p>
-                              <p className="text-[11px] leading-5 text-gray-400">
-                                {Math.round(r.val)} / {r.target} {r.unit} -{" "}
-                                {status.hint}
-                              </p>
-                            </div>
-                          </div>
-                          <span
-                            className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${status.badgeClass}`}
-                          >
-                            {status.label}
-                          </span>
-                        </div>
-                        <div className="progress-bar mt-2 h-2">
-                          <div
-                            className="progress-fill"
-                            style={{
-                              width: `${pct}%`,
-                              backgroundColor: status.barColor,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  <div className="rounded-2xl border border-forest-100 bg-forest-50/70 px-4 py-3 text-sm text-forest-800">
-                    <p className="font-semibold">
-                      {plateAkgStatus.label === "Optimal"
-                        ? "Komposisi sudah optimal"
-                        : plateAkgStatus.label === "Cukup"
-                          ? "Komposisi sudah mendekati target"
-                          : plateAkgStatus.label === "Mulai Berlebih" ||
-                              plateAkgStatus.label === "Terlalu Berlebih"
-                            ? "Komposisi perlu dikurangi"
-                            : "Komposisi masih perlu dilengkapi"}
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-forest-700/80">
-                      {plateNote}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-3xl border border-ink-100 bg-linear-to-b from-white to-forest-50/70 p-4 shadow-sm">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
-                    Komposisi Makronutrien
-                  </p>
-                  <h3 className="mt-1 text-base font-bold text-ink-700">
-                    Rasio Makro Harian
-                  </h3>
-                </div>
-                <div className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-forest-700 shadow-sm">
-                  {Math.round(macroTotal)} g total
-                </div>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <svg viewBox="0 0 42 42" className="h-32 w-32">
-                  {(() => {
-                    let start = 0;
-                    return slices.map((s) => {
-                      const pct =
-                        macroTotal > 0 ? (s.value / macroTotal) * 100 : 0;
-                      const node = (
-                        <circle
-                          key={s.key}
-                          cx="21"
-                          cy="21"
-                          r="15.915"
-                          fill="transparent"
-                          stroke={s.color}
-                          strokeWidth="7"
-                          strokeDasharray={`${pct} ${100 - pct}`}
-                          strokeDashoffset={-start}
-                        />
-                      );
-                      start += pct;
-                      return node;
-                    });
-                  })()}
-                </svg>
-
-                <div className="min-w-0 flex-1 space-y-3">
-                  {slices.map((s) => {
-                    const pct =
-                      macroTotal > 0
-                        ? Math.round((s.value / macroTotal) * 100)
-                        : 0;
-                    const kcal =
-                      s.key === "lemak"
-                        ? Math.round(s.value * 9)
-                        : Math.round(s.value * 4);
-
-                    return (
-                      <div
-                        key={s.key}
-                        className="flex items-center justify-between gap-3"
-                      >
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-gray-700">
-                            {s.label}
-                          </p>
-                          <p className="text-[11px] text-gray-400">
-                            {Math.round(s.value)} g
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-bold text-gray-700">
-                            {pct}%
-                          </p>
-                          <p className="text-[11px] text-gray-400">
-                            {kcal} kkal
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
+          <div className="bg-[linear-gradient(135deg,#ffffff_0%,#f7fbf7_55%,#eef8ef_100%)] p-4 sm:p-6">
+            <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div>
-                <div className="mt-4 rounded-2xl border border-forest-100 bg-white px-4 py-3 mb-5">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-forest-800">
-                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-forest-100 text-forest-700">
-                      <Activity className="h-3.5 w-3.5" />
-                    </div>
-                    Komposisi makro sesuai anjuran
+                <span className="inline-flex items-center gap-2 rounded-full border border-forest-100 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-forest-800 shadow-sm">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Piringku vs AKG 2019
+                </span>
+                <h2 className="mt-3 text-2xl font-black tracking-normal text-ink-700">
+                  Monitor Piringku vs AKG 2019
+                </h2>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-400">
+                  Gabungkan satu atau beberapa menu, lalu bandingkan total
+                  nutrisi terhadap target AKG.
+                </p>
+              </div>
+              <div className="rounded-[24px] border border-forest-100 bg-white/90 px-4 py-3 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-forest-50 text-forest-800">
+                    <Target className="h-5 w-5" />
                   </div>
-
-                  <p className="mt-1 text-xs leading-5 text-forest-700/80">
-                    Rasio makro dalam rentang yang dianjurkan untuk{" "}
-                    {STANDAR[kelompok].label.toLowerCase()}.
-                  </p>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-forest-100 bg-white px-4 py-3 mb-5">
-                  <div className="mb-3 flex items-center gap-2">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-amber-100 text-amber-600">
-                      <Activity className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700/80">
-                        Catatan
-                      </p>
-                    </div>
-                  </div>
-                  <p className="text-sm leading-6 text-amber-900/80">
-                    {plateNote}
-                  </p>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-forest-100 bg-white px-4 py-3 mb-5">
-                  <div className="mb-3 flex items-center gap-2 text-forest-800">
-                    <TrendingUp className="h-4 w-4" />
-                    <p className="text-[11px] font-bold uppercase tracking-[0.16em]">
-                      Tips
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-400">
+                      Target User
+                    </p>
+                    <p className="text-sm font-bold text-ink-700">
+                      {STANDAR[kelompok].label}
                     </p>
                   </div>
-                  <p className="text-sm leading-6 text-forest-800/80">
-                    {plateTip}
-                  </p>
                 </div>
               </div>
             </div>
+
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+              {TARGET_TABS.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.key}
+                    onClick={() => setKelompok(tab.key)}
+                    data-active={kelompok === tab.key}
+                    className="flex min-h-14 items-center justify-center gap-2 rounded-[20px] border border-ink-100 bg-white px-3 py-3 text-xs font-bold text-ink-500 shadow-sm transition hover:border-forest-200 hover:bg-forest-50 data-[active=true]:border-forest-100 data-[active=true]:bg-forest-50 data-[active=true]:text-forest-900"
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{STANDAR[tab.key].label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-5">
-            <div className="rounded-3xl border border-ink-100 bg-white p-4 shadow-sm">
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-forest-700/80">
-                    Makronutrien
-                  </p>
-                </div>
-              </div>
+          <div className="space-y-5 p-4 sm:p-6">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto]">
+              <button
+                onClick={() => setShowPlateMenuModal(true)}
+                className="flex min-h-14 items-center justify-between gap-3 rounded-[22px] border border-ink-100 bg-white px-4 py-3 text-left text-sm text-gray-700 shadow-sm transition hover:border-forest-200 hover:bg-forest-50"
+              >
+                <span className="min-w-0 truncate font-semibold">
+                  {selectedMenuId
+                    ? sanitizeMenuName(
+                        menuLookup.get(selectedMenuId)?.nama || "Pilih menu",
+                      )
+                    : "Cari menu untuk mulai analisis piringku"}
+                </span>
+                <Search className="h-4 w-4 shrink-0 text-forest-700" />
+              </button>
+              <button
+                onClick={() => selectedMenuId && addMenu(selectedMenuId)}
+                disabled={!selectedMenuId || plateAiLoading}
+                className="btn-primary inline-flex min-h-14 items-center justify-center gap-2 px-6 text-sm disabled:opacity-50"
+              >
+                {plateAiLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4" />
+                )}
+                Tambah ke Piringku
+              </button>
+            </div>
 
-              {microStatus.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
-                  Belum ada makronutrien manual pada menu yang sedang ada di
-                  Piringku.
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const id = Number(e.dataTransfer.getData("menu-id"));
+                if (id) addMenu(id);
+              }}
+              className="rounded-[30px] border border-forest-100 bg-[linear-gradient(180deg,#ffffff_0%,#f7fbf7_100%)] p-3 shadow-sm sm:p-4"
+            >
+              {piringkuMenus.length === 0 ? (
+                <div className="grid min-h-72 place-items-center rounded-[26px] border border-dashed border-forest-200 bg-white/70 p-6 text-center">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-[24px] bg-forest-50 text-forest-800">
+                    <ChefHat className="h-8 w-8" />
+                  </div>
+                  <div className="mt-4 max-w-md">
+                    <h3 className="text-lg font-bold text-ink-700">
+                      Pilih menu untuk mulai analisis piringku
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-ink-400">
+                      Belum ada data nutrisi untuk ditampilkan. Tambahkan menu
+                      atau seret kartu dari daftar bawah.
+                    </p>
+                  </div>
+                  <div className="mt-6 grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-3">
+                    {[0, 1, 2].map((item) => (
+                      <div
+                        key={item}
+                        className="nutrition-shimmer h-24 rounded-[22px] border border-ink-100 bg-white"
+                      />
+                    ))}
+                  </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                  {microStatus.map((field) => {
-                    const shownValue = Math.round(field.value * 10) / 10;
+                <div>
+                  <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
+                        Menu Terpilih
+                      </p>
+                      <h3 className="mt-1 text-xl font-black text-ink-700">
+                        {piringkuMenus.length} widget menu aktif
+                      </h3>
+                    </div>
+                    <span
+                      className={`w-fit rounded-full px-3 py-1.5 text-xs font-bold ${plateAkgStatus.badgeClass}`}
+                    >
+                      Total Piringku: {plateAkgPercent}% -{" "}
+                      {plateAkgStatus.label}
+                    </span>
+                  </div>
 
-                    return (
-                      <div
-                        key={field.key}
-                        className="rounded-2xl border bg-white p-3 shadow-sm"
-                        style={{ borderColor: `${field.color}30` }}
-                      >
-                        <div className="mb-2 flex items-center gap-2">
-                          <div
-                            className="flex h-7 w-7 items-center justify-center rounded-lg"
-                            style={{
-                              backgroundColor: `${field.color}18`,
-                              color: field.color,
-                            }}
-                          >
-                            <span className="text-[9px] font-black uppercase">
-                              {field.abbr}
-                            </span>
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    {piringkuMenus.map((menu) => {
+                      const imageUrl = resolveMenuImageUrl(menu.gambar_url);
+                      const displayName =
+                        sanitizeMenuName(menu.nama) || menu.nama;
+                      const menuMacroTotal =
+                        Number(menu.protein || 0) +
+                        Number(menu.karbohidrat || 0) +
+                        Number(menu.lemak || 0);
+                      const menuPercent = Math.round(
+                        (Number(menu.kalori || 0) /
+                          STANDAR[kelompok].kalori) *
+                          100,
+                      );
+                      const menuStatus = getAkgStatus(menuPercent);
+                      const menuSlices = [
+                        {
+                          key: "karbo",
+                          label: "Karbohidrat",
+                          value: Number(menu.karbohidrat || 0),
+                          color: "#8b5cf6",
+                        },
+                        {
+                          key: "protein",
+                          label: "Protein",
+                          value: Number(menu.protein || 0),
+                          color: "#10b981",
+                        },
+                        {
+                          key: "lemak",
+                          label: "Lemak",
+                          value: Number(menu.lemak || 0),
+                          color: "#f59e0b",
+                        },
+                      ].filter((item) => item.value > 0);
+
+                      return (
+                        <div
+                          key={menu.id}
+                          className="grid overflow-hidden rounded-[28px] border border-ink-100 bg-white shadow-sm sm:grid-cols-[180px_1fr]"
+                        >
+                          <div className="relative min-h-52 bg-forest-50 sm:min-h-full">
+                            {imageUrl ? (
+                              <img
+                                src={imageUrl}
+                                alt={displayName}
+                                className="h-full min-h-52 w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full min-h-52 items-center justify-center text-forest-700">
+                                <ChefHat className="h-12 w-12" />
+                              </div>
+                            )}
+                            <div className="absolute left-3 top-3 rounded-full bg-white/92 px-3 py-1.5 text-xs font-bold text-forest-900 shadow-sm">
+                              1 Porsi
+                            </div>
                           </div>
-                          <p className="truncate text-xs font-semibold text-gray-700">
-                            {field.label}
-                          </p>
-                        </div>
 
-                        <p className="text-2xl font-black text-gray-800">
-                          {shownValue}
-                          <span className="ml-1 text-xs font-semibold text-gray-400">
-                            {field.unit}
-                          </span>
-                        </p>
-                      </div>
-                    );
-                  })}
+                          <div className="flex min-w-0 flex-col gap-4 p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-400">
+                                  Target {STANDAR[kelompok].label}
+                                </p>
+                                <h4 className="mt-1 line-clamp-2 text-lg font-black text-ink-700">
+                                  {displayName}
+                                </h4>
+                              </div>
+                              <button
+                                onClick={() => removeMenu(menu.id)}
+                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100"
+                                title="Hapus dari Piringku"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2">
+                              {[
+                                [`${Math.round(Number(menu.kalori || 0))}`, "kkal"],
+                                [
+                                  `${plateIngredientCountMap[menu.id] || 0}`,
+                                  "komponen",
+                                ],
+                                [`${menuPercent}%`, "AKG"],
+                              ].map(([value, label]) => (
+                                <div
+                                  key={label}
+                                  className="rounded-[18px] border border-ink-100 bg-forest-25 px-3 py-2"
+                                >
+                                  <p className="text-sm font-black text-ink-700">
+                                    {value}
+                                  </p>
+                                  <p className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-ink-400">
+                                    {label}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+
+                            <span
+                              className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${menuStatus.badgeClass}`}
+                            >
+                              {menuStatus.label}
+                            </span>
+
+                            <div className="space-y-2">
+                              {menuSlices.map((slice) => {
+                                const percent =
+                                  menuMacroTotal > 0
+                                    ? Math.round(
+                                        (slice.value / menuMacroTotal) * 100,
+                                      )
+                                    : 0;
+                                return (
+                                  <div
+                                    key={slice.key}
+                                    className="flex items-center justify-between gap-3 text-xs"
+                                  >
+                                    <div className="flex min-w-0 items-center gap-2">
+                                      <span
+                                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                        style={{ backgroundColor: slice.color }}
+                                      />
+                                      <span className="truncate font-bold text-ink-700">
+                                        {slice.label}
+                                      </span>
+                                    </div>
+                                    <span className="font-semibold text-ink-400">
+                                      {Math.round(slice.value)} g - {percent}%
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
+
+            {piringkuMenus.length > 0 && (
+              <>
+                <div className="grid grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+                  <div className="rounded-[30px] border border-ink-100 bg-white p-5 shadow-sm">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
+                          Ringkasan AKG Harian
+                        </p>
+                        <h3 className="mt-1 text-lg font-black text-ink-700">
+                          Capaian Total Piringku
+                        </h3>
+                      </div>
+                      <Gauge className="h-5 w-5 text-forest-800" />
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-5 md:grid-cols-[220px_1fr]">
+                      <div className="relative mx-auto flex h-52 w-52 items-center justify-center">
+                        <svg viewBox="0 0 44 44" className="h-full w-full -rotate-90">
+                          <circle
+                            cx="22"
+                            cy="22"
+                            r="18"
+                            fill="none"
+                            stroke="#e8eee8"
+                            strokeWidth="5"
+                          />
+                          <motion.circle
+                            cx="22"
+                            cy="22"
+                            r="18"
+                            fill="none"
+                            stroke={plateAkgStatus.ringColor}
+                            strokeLinecap="round"
+                            strokeWidth="5"
+                            initial={{ pathLength: 0 }}
+                            animate={{
+                              pathLength: Math.min(1.3, plateAkgPercent / 100),
+                            }}
+                            transition={{ duration: 0.8, ease: "easeOut" }}
+                          />
+                        </svg>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                          <span
+                            className={`text-5xl font-black ${plateAkgStatus.textClass}`}
+                          >
+                            {plateAkgPercent}%
+                          </span>
+                          <span className="mt-1 text-xs font-bold text-ink-400">
+                            skor gabungan
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <span
+                          className={`inline-flex rounded-full px-3 py-1.5 text-xs font-bold ${plateAkgStatus.badgeClass}`}
+                        >
+                          {plateAkgStatus.label}
+                        </span>
+                        <p className="text-sm leading-6 text-ink-500">
+                          Status dihitung dari kalori, komposisi makro, dan
+                          mikronutrien yang tersedia pada menu.
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {visibleRows.slice(0, 4).map((row) => (
+                            <div
+                              key={row.label}
+                              className="rounded-[18px] border border-ink-100 bg-forest-25 px-3 py-3"
+                            >
+                              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-400">
+                                {row.label}
+                              </p>
+                              <p className="mt-1 text-sm font-black text-ink-700">
+                                {Math.round(row.val)} / {row.target} {row.unit}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[30px] border border-ink-100 bg-[linear-gradient(180deg,#ffffff_0%,#f6fbf7_100%)] p-5 shadow-sm">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
+                          Komposisi Makronutrien
+                        </p>
+                        <h3 className="mt-1 text-lg font-black text-ink-700">
+                          Donut Macro Composition
+                        </h3>
+                      </div>
+                      <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-forest-800 shadow-sm">
+                        {Math.round(macroTotal)} g total
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-5 md:grid-cols-[220px_1fr]">
+                      <CompositionDonut
+                        segments={slices}
+                        centerValue={`${Math.round(macroTotal)} g`}
+                        centerLabel="total makro"
+                      />
+
+                      <div className="space-y-3">
+                        {slices.map((slice) => {
+                          const percent =
+                            macroTotal > 0
+                              ? Math.round((slice.value / macroTotal) * 100)
+                              : 0;
+                          const kcal =
+                            slice.key === "lemak"
+                              ? Math.round(slice.value * 9)
+                              : Math.round(slice.value * 4);
+                          const row = rows.find(
+                            (item) =>
+                              item.label.toLowerCase() ===
+                              (slice.key === "karbo" ? "karbo" : slice.key),
+                          );
+
+                          return (
+                            <div
+                              key={slice.key}
+                              className="rounded-[22px] border border-ink-100 bg-white px-4 py-3 shadow-sm"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-3">
+                                  <span
+                                    className="flex h-10 w-10 items-center justify-center rounded-2xl"
+                                    style={{
+                                      backgroundColor: `${slice.color}18`,
+                                      color: slice.color,
+                                    }}
+                                  >
+                                    {slice.key === "protein" ? (
+                                      <ProteinIcon className="h-5 w-5" />
+                                    ) : slice.key === "lemak" ? (
+                                      <FatIcon className="h-5 w-5" />
+                                    ) : (
+                                      <CarboIcon className="h-5 w-5" />
+                                    )}
+                                  </span>
+                                  <div>
+                                    <p className="text-sm font-bold text-ink-700">
+                                      {slice.label}
+                                    </p>
+                                    <p className="text-xs text-ink-400">
+                                      {Math.round(slice.value)} g - {kcal} kkal
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-lg font-black text-ink-700">
+                                    {percent}%
+                                  </p>
+                                  <span
+                                    className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${row?.status.badgeClass || ""}`}
+                                  >
+                                    {row?.status.label || "Baik"}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+                  <div className="rounded-[30px] border border-ink-100 bg-white p-5 shadow-sm">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
+                          Perbandingan Detail Zat Gizi
+                        </p>
+                        <h3 className="mt-1 text-lg font-black text-ink-700">
+                          Asupan vs AKG 2019
+                        </h3>
+                      </div>
+                      <Scale className="h-5 w-5 text-forest-800" />
+                    </div>
+
+                    {visibleRows.length === 0 ? (
+                      <div className="rounded-[22px] border border-dashed border-ink-100 bg-gray-50 p-5 text-sm text-ink-400">
+                        Belum ada data nutrisi untuk dibandingkan.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {visibleRows.map((row) => (
+                          <div
+                            key={row.label}
+                            className="grid grid-cols-1 gap-3 rounded-[22px] border border-ink-100 bg-white px-4 py-4 shadow-sm md:grid-cols-[1.2fr_0.8fr_0.8fr_0.7fr_auto] md:items-center"
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-forest-50 text-forest-800">
+                                {row.label === "Kalori" ? (
+                                  <CalorieIcon className="h-5 w-5" />
+                                ) : row.label === "Protein" ? (
+                                  <ProteinIcon className="h-5 w-5" />
+                                ) : row.label === "Lemak" ? (
+                                  <FatIcon className="h-5 w-5" />
+                                ) : (
+                                  <CarboIcon className="h-5 w-5" />
+                                )}
+                              </span>
+                              <p className="font-bold text-ink-700">
+                                {row.label}
+                              </p>
+                            </div>
+                            <p className="text-sm text-ink-500">
+                              {Math.round(row.val)} {row.unit}
+                            </p>
+                            <p className="text-sm text-ink-500">
+                              {row.target} {row.unit}
+                            </p>
+                            <p className="text-sm font-black text-ink-700">
+                              {row.percent}%
+                            </p>
+                            <span
+                              className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${row.status.badgeClass}`}
+                            >
+                              {row.status.label}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-[30px] border border-ink-100 bg-white p-5 shadow-sm">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
+                          Mikronutrien
+                        </p>
+                        <h3 className="mt-1 text-lg font-black text-ink-700">
+                          Data Tambahan Menu
+                        </h3>
+                      </div>
+                      <FlaskConical className="h-5 w-5 text-forest-800" />
+                    </div>
+
+                    {microStatus.length === 0 ? (
+                      <div className="rounded-[24px] border border-dashed border-ink-100 bg-forest-25 p-6 text-center">
+                        <Leaf className="mx-auto h-8 w-8 text-forest-700" />
+                        <p className="mt-3 text-sm font-bold text-ink-700">
+                          Belum ada data mikronutrien
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-ink-400">
+                          Tambahkan nutrien manual pada menu agar progres mikro
+                          muncul di sini.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-5 md:grid-cols-[190px_1fr]">
+                        <CompositionDonut
+                          segments={microStatus.map((field) => ({
+                            key: field.key,
+                            label: field.label,
+                            value: field.value,
+                            color: field.color,
+                          }))}
+                          centerValue={`${Math.round(microTotal * 10) / 10}`}
+                          centerLabel="total mikro"
+                          sizeClass="h-48 w-48"
+                        />
+
+                        <div className="space-y-3">
+                          {microStatus.map((field) => {
+                            const shownValue =
+                              Math.round(field.value * 10) / 10;
+                            const percent =
+                              microTotal > 0
+                                ? Math.round((field.value / microTotal) * 100)
+                                : 0;
+
+                            return (
+                              <div
+                                key={field.key}
+                                className="rounded-[20px] border border-ink-100 bg-white px-3 py-3 shadow-sm"
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <span
+                                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-[10px] font-black"
+                                      style={{
+                                        backgroundColor: `${field.color}18`,
+                                        color: field.color,
+                                      }}
+                                    >
+                                      {field.abbr}
+                                    </span>
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-bold text-ink-700">
+                                        {field.label}
+                                      </p>
+                                      <p className="text-xs text-ink-400">
+                                        {shownValue} {field.unit}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-sm font-black text-ink-700">
+                                      {percent}%
+                                    </p>
+                                    <p
+                                      className={`text-[11px] font-bold ${field.statusClass}`}
+                                    >
+                                      {field.statusLabel}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+                  {plateAiLoading ? (
+                    [0, 1, 2].map((item) => (
+                      <div
+                        key={item}
+                        className="nutrition-shimmer h-44 rounded-[30px] border border-ink-100 bg-white"
+                      />
+                    ))
+                  ) : plateAiError ? (
+                    <div className="xl:col-span-3 rounded-[30px] border border-red-100 bg-red-50 p-5">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className="mt-0.5 h-5 w-5 text-red-600" />
+                          <div>
+                            <p className="text-sm font-bold text-red-800">
+                              Gemini API gagal memproses analisis
+                            </p>
+                            <p className="mt-1 text-sm text-red-700">
+                              {plateAiError}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={retryPlateAi}
+                          className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-white px-4 py-3 text-sm font-bold text-red-700 shadow-sm"
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                          Retry
+                        </button>
+                      </div>
+                    </div>
+                  ) : plateAiAnalysis ? (
+                    <>
+                      <div className="rounded-[30px] border border-violet-100 bg-violet-50/70 p-5 shadow-sm">
+                        <div className="mb-4 flex items-center gap-3">
+                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-violet-700 shadow-sm">
+                            <Info className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="font-black text-violet-900">
+                              Catatan AI
+                            </p>
+                            <p className="text-xs text-violet-700/70">
+                              Gemini insight
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-sm leading-7 text-violet-950/80">
+                          {aiWarnings[0]?.pesan ||
+                            aiSuccess?.pesan ||
+                            plateAiAnalysis.pesan}
+                        </p>
+                      </div>
+
+                      <div className="rounded-[30px] border border-amber-100 bg-amber-50/80 p-5 shadow-sm">
+                        <div className="mb-4 flex items-center gap-3">
+                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-amber-700 shadow-sm">
+                            <Sparkles className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="font-black text-amber-900">
+                              Tips AI
+                            </p>
+                            <p className="text-xs text-amber-700/70">
+                              Rekomendasi praktis
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-sm leading-7 text-amber-950/80">
+                          {aiTips[0]?.detail || aiTips[0]?.pesan || plateAiAnalysis.pesan}
+                        </p>
+                      </div>
+
+                      <div className="rounded-[30px] border border-forest-100 bg-forest-50/80 p-5 shadow-sm">
+                        <div className="mb-4 flex items-center gap-3">
+                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-forest-800 shadow-sm">
+                            <CheckCircle2 className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="font-black text-forest-950">
+                              Kesimpulan AI
+                            </p>
+                            <p className="text-xs text-forest-700/70">
+                              {plateAiAnalysis.ai_engine}
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-sm leading-7 text-forest-950/80">
+                          {plateAiAnalysis.pesan}
+                        </p>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              </>
+            )}
           </div>
         </motion.div>
 
@@ -1862,8 +2242,8 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
               const holidayName = holidayMap[day.dateKey];
               const isHoliday = Boolean(holidayName);
               const dayPlan = normalizeDayPlan(weeklyPlan[day.dateKey]);
-              const totalDayItems =
-                dayPlan.makananIds.length + dayPlan.minumanIds.length;
+              const dayMenus = getMenusByDay(day.dateKey);
+              const totalDayItems = getDayMenuIds(dayPlan).length;
               const isFilled = totalDayItems > 0;
 
               return (
@@ -1918,125 +2298,96 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                       </p>
                     </div>
                   ) : (
-                    <div className="space-y-2">
-                      {[
-                        {
-                          type: "makanan" as MenuType,
-                          label: "Makanan",
-                          icon: UtensilsCrossed,
-                          emptyLabel: "Drop menu makanan",
-                          sectionClass: "border-emerald-200 bg-emerald-50/40",
-                        },
-                        {
-                          type: "minuman" as MenuType,
-                          label: "Minuman",
-                          icon: GlassWater,
-                          emptyLabel: "Drop menu minuman",
-                          sectionClass: "border-sky-200 bg-sky-50/40",
-                        },
-                      ].map((slot) => {
-                        const slotMenus = getMenusByDay(day.dateKey, slot.type);
-                        const dropTargetKey = `${day.dateKey}:${slot.type}`;
-                        const isDropTarget = dragOverTarget === dropTargetKey;
-                        const SlotIcon = slot.icon;
-
-                        return (
-                          <div
-                            key={slot.type}
-                            onDragOver={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setDragOverTarget(dropTargetKey);
-                            }}
-                            onDragLeave={() => {
-                              if (dragOverTarget === dropTargetKey) {
-                                setDragOverTarget(null);
-                              }
-                            }}
-                            onDrop={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              const menuId = Number(
-                                e.dataTransfer.getData("menu-id"),
-                              );
-                              if (menuId) {
-                                assignMenuToDay(day.dateKey, menuId, slot.type);
-                                setMenuType(menuId, slot.type);
-                              }
-                              setDragOverTarget(null);
-                            }}
-                            className={`rounded-[18px] border px-2.5 py-2.5 transition-all ${slot.sectionClass} ${
-                              isDropTarget ? "ring-2 ring-forest-300" : ""
-                            }`}
-                          >
-                            <div className="mb-1.5 flex items-center gap-1.5">
-                              <SlotIcon className="h-3 w-3 text-gray-500" />
-                              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-600">
-                                {slot.label}
-                              </p>
-                            </div>
-
-                            {slotMenus.length === 0 ? (
-                              <p className="text-[10px] text-gray-400">
-                                {slot.emptyLabel}
-                              </p>
-                            ) : (
-                              <div className="space-y-1.5">
-                                {slotMenus.map((menu) => {
-                                  const thumbUrl = resolveMenuImageUrl(
-                                    menu.gambar_url,
-                                  );
-                                  const displayName =
-                                    sanitizeMenuName(menu.nama) || menu.nama;
-
-                                  return (
-                                    <div
-                                      key={`${day.dateKey}-${slot.type}-${menu.id}`}
-                                      className="rounded-[14px] border border-gray-200 bg-white p-2 shadow-sm transition hover:-translate-y-0.5 hover:border-forest-200 hover:shadow-md"
-                                    >
-                                      <div className="mb-1 flex items-center gap-1.5">
-                                        {thumbUrl ? (
-                                          <img
-                                            src={thumbUrl}
-                                            alt={displayName}
-                                            className="h-6 w-6 rounded object-cover"
-                                          />
-                                        ) : (
-                                          <span className="flex h-6 w-6 items-center justify-center rounded bg-gray-100 text-gray-400">
-                                            <ChefHat className="h-3.5 w-3.5" />
-                                          </span>
-                                        )}
-                                        <p className="truncate text-[10px] font-semibold text-gray-700">
-                                          {displayName}
-                                        </p>
-                                      </div>
-
-                                      <div className="flex items-center justify-between gap-1">
-                                        <div className="flex items-center gap-2">
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              removeMenuFromDay(
-                                                day.dateKey,
-                                                slot.type,
-                                                menu.id,
-                                              );
-                                            }}
-                                            className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                                            title="Hapus dari jadwal"
-                                          >
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDragOverTarget(day.dateKey);
+                      }}
+                      onDragLeave={() => {
+                        if (dragOverTarget === day.dateKey) {
+                          setDragOverTarget(null);
+                        }
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const menuId = Number(
+                          e.dataTransfer.getData("menu-id"),
                         );
-                      })}
+                        if (menuId) assignMenuToDay(day.dateKey, menuId);
+                        setDragOverTarget(null);
+                      }}
+                      className={`min-h-[176px] rounded-[20px] border border-emerald-200 bg-emerald-50/40 px-2.5 py-2.5 transition-all ${
+                        dragOverTarget === day.dateKey
+                          ? "ring-2 ring-forest-300"
+                          : ""
+                      }`}
+                    >
+                      <div className="mb-2 flex items-center gap-1.5">
+                        <UtensilsCrossed className="h-3.5 w-3.5 text-forest-700" />
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-gray-600">
+                          Menu Hari Ini
+                        </p>
+                      </div>
+
+                      {dayMenus.length === 0 ? (
+                        <div className="flex min-h-[126px] items-center justify-center rounded-[16px] border border-dashed border-emerald-200 bg-white/70 px-3 text-center">
+                          <p className="text-[10px] leading-5 text-gray-400">
+                            Drop menu ke sini
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {dayMenus.map((menu) => {
+                            const thumbUrl = resolveMenuImageUrl(
+                              menu.gambar_url,
+                            );
+                            const displayName =
+                              sanitizeMenuName(menu.nama) || menu.nama;
+
+                            return (
+                              <div
+                                key={`${day.dateKey}-menu-${menu.id}`}
+                                className="rounded-[14px] border border-gray-200 bg-white p-2 shadow-sm transition hover:-translate-y-0.5 hover:border-forest-200 hover:shadow-md"
+                              >
+                                <div className="mb-1 flex items-center gap-1.5">
+                                  {thumbUrl ? (
+                                    <img
+                                      src={thumbUrl}
+                                      alt={displayName}
+                                      className="h-6 w-6 rounded object-cover"
+                                    />
+                                  ) : (
+                                    <span className="flex h-6 w-6 items-center justify-center rounded bg-gray-100 text-gray-400">
+                                      <ChefHat className="h-3.5 w-3.5" />
+                                    </span>
+                                  )}
+                                  <p className="truncate text-[10px] font-semibold text-gray-700">
+                                    {displayName}
+                                  </p>
+                                </div>
+
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="text-[9px] font-semibold text-gray-400">
+                                    {menu.kalori ?? 0} kkal
+                                  </span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      removeMenuFromDay(day.dateKey, menu.id);
+                                    }}
+                                    className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                    title="Hapus dari jadwal"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -2082,22 +2433,6 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
               className="flex-1 px-4 py-3 text-sm"
             />
           </div>
-
-          <div className="pill-toggle">
-            {[
-              { key: "all" as const, label: "Semua" },
-              { key: "makanan" as const, label: "Makanan" },
-              { key: "minuman" as const, label: "Minuman" },
-            ].map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setMenuTypeFilter(tab.key)}
-                data-active={menuTypeFilter === tab.key}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
         </div>
 
         {loading ? (
@@ -2110,7 +2445,6 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
               const lemak = Number(m.lemak || 0);
               const isOnPlate = plateMenuIds.includes(m.id);
               const imageUrl = resolveMenuImageUrl(m.gambar_url);
-              const menuType = resolvedMenuTypes[m.id] || "makanan";
               const menuPorsi =
                 resolvedMenuPorsi[m.id] || inferMenuPorsi(m.kalori);
               const displayName = sanitizeMenuName(m.nama) || m.nama;
@@ -2121,11 +2455,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                   whileHover={{ y: -3 }}
                   draggable
                   onDragStartCapture={(e) =>
-                    handleCardDragStart(
-                      e as DragEvent<HTMLDivElement>,
-                      m.id,
-                      menuType,
-                    )
+                    handleCardDragStart(e as DragEvent<HTMLDivElement>, m.id)
                   }
                   onDragEnd={handleCardDragEnd}
                   className={`touch-pan-y cursor-grab overflow-hidden rounded-[24px] border bg-white transition-all active:cursor-grabbing ${
@@ -2158,15 +2488,6 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                         className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${getPorsiBadgeClass(menuPorsi)}`}
                       >
                         {getPorsiLabel(menuPorsi)}
-                      </span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                          menuType === "minuman"
-                            ? "bg-sky-100 text-sky-700"
-                            : "bg-emerald-100 text-emerald-700"
-                        }`}
-                      >
-                        {menuType === "minuman" ? "Minuman" : "Makanan"}
                       </span>
                     </div>
                   </div>

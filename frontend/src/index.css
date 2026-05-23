@@ -599,6 +599,31 @@
       0 2px 4px rgba(36, 49, 39, 0.03);
   }
 
+  .nutrition-shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .nutrition-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.72),
+      transparent
+    );
+    animation: nutrition-shimmer 1.45s infinite;
+  }
+
+  @keyframes nutrition-shimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
   @media (max-width: 768px) {
     .page-shell {
       padding: 0.25rem;
