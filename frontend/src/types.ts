@@ -68,8 +68,12 @@ export interface NutrientAnalysis {
   unit: string;
   min: number;
   max: number;
-  status: "optimal" | "rendah" | "berlebih";
+  target?: number | null;
+  percent?: number | null;
+  status: string;
   score: number;
+  category?: "macro" | "micro";
+  limit_only?: boolean;
 }
 
 export interface AIRecommendation {
@@ -85,9 +89,24 @@ export interface AIAnalysisResult {
   skor_gizi: number;
   status: string;
   pesan: string;
+  catatan_ai?: string;
+  tips_ai?: string;
+  kesimpulan_ai?: string;
   detail_analisis: Record<string, NutrientAnalysis>;
   rekomendasi: AIRecommendation[];
   standar_referensi: string;
+  target_key?: string;
+  target_label?: string;
+  target_focus?: string;
+  macro_distribution?: {
+    protein_pct: number;
+    karbohidrat_pct: number;
+    lemak_pct: number;
+  } | null;
+  data_quality?: {
+    is_complete: boolean;
+    warnings: string[];
+  };
   ai_engine: string;
   analyzed_at: string;
 }

@@ -13,9 +13,34 @@ import {
   Users,
   Zap,
 } from "lucide-react";
-import type { Menu, AIAnalysisResult } from "../types";
+import type { Menu, AIAnalysisResult, MenuNutrition } from "../types";
 
 const API = "http://localhost:3002/api/menu";
+
+async function readJsonResponse<T>(res: Response, fallbackMessage: string) {
+  const text = await res.text();
+  let data: unknown = null;
+
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(
+        `${fallbackMessage}. Server mengirim respons non-JSON (${res.status}).`,
+      );
+    }
+  }
+
+  if (!res.ok) {
+    const message =
+      data && typeof data === "object" && "error" in data
+        ? String((data as { error: unknown }).error)
+        : fallbackMessage;
+    throw new Error(message);
+  }
+
+  return data as T;
+}
 
 const PILLAR_COLORS: Record<string, string> = {
   kalori: "#2e7d32",
@@ -117,8 +142,10 @@ export default function AILabPage() {
     setApplySuccess(null);
     try {
       const res = await fetch(`${API}/${menuId}/analyze`, { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Analisis gagal");
+      const data = await readJsonResponse<AIAnalysisResult>(
+        res,
+        "Analisis gagal",
+      );
       setAnalysis(data as AIAnalysisResult);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Terjadi kesalahan");
@@ -129,7 +156,7 @@ export default function AILabPage() {
 
   useEffect(() => {
     fetch(API)
-      .then((r) => r.json())
+      .then((r) => readJsonResponse<Menu[]>(r, "Gagal memuat menu"))
       .then((data) => {
         const list = Array.isArray(data) ? data : [];
         setMenus(list as Menu[]);
@@ -148,10 +175,12 @@ export default function AILabPage() {
 
     try {
       const detailRes = await fetch(`${API}/${selectedMenuId}`);
-      const detail = await detailRes.json();
-      if (!detailRes.ok) throw new Error("Gagal mengambil data menu");
+      const detail = await readJsonResponse<Menu>(
+        detailRes,
+        "Gagal mengambil data menu",
+      );
 
-      const currentNutrition = detail.nutrition || {};
+      const currentNutrition = (detail.nutrition || {}) as Partial<MenuNutrition>;
       const akgMin = AKG_MINIMUM[targetMBG];
       const akgMax = AKG_MAXIMUM[targetMBG];
       const rec = analysis.rekomendasi[recIdx];
@@ -161,9 +190,14 @@ export default function AILabPage() {
         const key = rec.nutrient.toLowerCase();
         const nutritionKey = key === "karbohidrat" ? "karbohidrat" : key;
         if (nutritionKey in akgMin) {
-          const currentVal = Number(updatedNutrition[nutritionKey] || 0);
-          const min = akgMin[nutritionKey];
-          const max = akgMax[nutritionKey];
+          const typedKey = nutritionKey as keyof typeof akgMin;
+          const nutritionValues = updatedNutrition as Record<
+            string,
+            number | undefined
+          >;
+          const currentVal = Number(nutritionValues[nutritionKey] || 0);
+          const min = akgMin[typedKey];
+          const max = akgMax[typedKey];
           const target = Math.round((min + max) / 2);
 
           if (rec.severity === "warning" && currentVal < min) {
@@ -193,7 +227,7 @@ export default function AILabPage() {
         }),
       });
 
-      if (!putRes.ok) throw new Error("Gagal mengupdate nutrisi");
+      await readJsonResponse(putRes, "Gagal mengupdate nutrisi");
 
       setApplySuccess(
         `Sugesti "${rec.nutrient || "Umum"}" berhasil diterapkan!`,

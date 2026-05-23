@@ -1,12 +1,10 @@
 import type { ComponentType } from "react";
 import { motion } from "framer-motion";
 import {
-  Brain,
   ChefHat,
   LayoutDashboard,
   Leaf,
   LogOut,
-  Package,
   User,
   UtensilsCrossed,
 } from "lucide-react";
@@ -27,8 +25,6 @@ const NAV_ITEMS: Array<{
   { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
   { id: "menu-catalog", label: "Menu Catalog", Icon: UtensilsCrossed },
   { id: "recipe-builder", label: "Recipe Builder", Icon: ChefHat },
-  { id: "ai-lab", label: "AI Nutrition Lab", Icon: Brain },
-  { id: "smart-stock", label: "Smart Stock", Icon: Package },
 ];
 
 export default function Sidebar({

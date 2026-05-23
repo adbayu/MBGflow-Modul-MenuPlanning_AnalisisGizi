@@ -4,6 +4,26 @@ const db = require("../db");
 const aiService = require("../services/aiNutritionService");
 const upload = require("../middleware/upload");
 
+function normalizeDayPlan(raw) {
+  if (!raw || typeof raw !== "object") {
+    return { makananIds: [], minumanIds: [] };
+  }
+
+  const pickIds = (value) =>
+    Array.isArray(value)
+      ? value.map((id) => Number(id)).filter(Number.isFinite)
+      : [];
+
+  return {
+    makananIds: pickIds(raw.makananIds),
+    minumanIds: pickIds(raw.minumanIds),
+  };
+}
+
+function isDateKey(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
 // ============================================================
 // CRUD MENU
 // ============================================================
@@ -58,6 +78,7 @@ router.post("/analyze-plate", async (req, res) => {
     const [rows] = await db.query(
       `
         SELECT m.id, m.nama, m.kategori, m.deskripsi,
+               n.id AS nutrition_id,
                n.kalori, n.protein, n.lemak, n.karbohidrat, n.serat, n.gula
         FROM menus m
         LEFT JOIN menu_nutrition n ON m.id = n.menu_id
@@ -69,6 +90,15 @@ router.post("/analyze-plate", async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({ error: "Menu tidak ditemukan" });
     }
+
+    const [manualRows] = await db.query(
+      `
+        SELECT menu_id, nama, nilai, satuan
+        FROM menu_manual_macronutrients
+        WHERE menu_id IN (${placeholders})
+      `,
+      menuIds,
+    );
 
     const nutrition = rows.reduce(
       (acc, item) => {
@@ -84,15 +114,35 @@ router.post("/analyze-plate", async (req, res) => {
     );
 
     const target = String(req.body?.target || "Target MBG");
+    const targetKey = String(req.body?.targetKey || req.body?.target_key || "");
     const menuNames = rows.map((item) => item.nama).join(" + ");
+    const missingNutrition = rows
+      .filter((item) => !item.nutrition_id)
+      .map((item) => item.nama);
     const analysis = await aiService.analyzeNutrition(
       nutrition,
       `Piringku: ${menuNames}`,
       {
+        targetKey,
+        target,
         kategori: target,
         deskripsi: `Analisis gabungan ${rows.length} menu untuk ${target}. Menu: ${menuNames}`,
+        manualNutrients: manualRows,
+        requireGemini: true,
       },
     );
+    if (missingNutrition.length > 0) {
+      analysis.data_quality = analysis.data_quality || {
+        is_complete: true,
+        warnings: [],
+      };
+      analysis.data_quality.is_complete = false;
+      analysis.data_quality.warnings = [
+        ...analysis.data_quality.warnings,
+        `Data nutrisi belum ada untuk: ${missingNutrition.join(", ")}.`,
+      ];
+      analysis.status = "Data Belum Lengkap";
+    }
 
     res.json({
       ...analysis,
@@ -101,6 +151,235 @@ router.post("/analyze-plate", async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/menu/distribution-locations - Lokasi distribusi dari database
+router.get("/distribution-locations", async (_req, res) => {
+  try {
+    const [locations] = await db.query(`
+      SELECT id, type, name, target, schedule_label AS schedule, note, image_key
+      FROM distribution_locations
+      ORDER BY FIELD(type, 'sekolah', 'posyandu'), name
+    `);
+    const [recipients] = await db.query(`
+      SELECT location_id, label, target
+      FROM distribution_location_recipients
+      ORDER BY id
+    `);
+
+    const recipientMap = recipients.reduce((acc, item) => {
+      if (!acc[item.location_id]) acc[item.location_id] = [];
+      acc[item.location_id].push({ label: item.label, target: item.target });
+      return acc;
+    }, {});
+
+    res.json(
+      locations.map((location) => ({
+        ...location,
+        recipients: recipientMap[location.id] || [],
+      })),
+    );
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/menu/distribution-locations - Tambah lokasi distribusi
+router.post("/distribution-locations", async (req, res) => {
+  const {
+    id,
+    type,
+    name,
+    target,
+    schedule,
+    note,
+    image_key = "students",
+    recipients = [],
+  } = req.body || {};
+
+  if (!id || !type || !name || !target || !schedule) {
+    return res.status(400).json({ error: "Data lokasi belum lengkap" });
+  }
+
+  if (!["sekolah", "posyandu"].includes(type)) {
+    return res.status(400).json({ error: "Tipe lokasi tidak valid" });
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.query(
+      `INSERT INTO distribution_locations
+       (id, type, name, target, schedule_label, note, image_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         type = VALUES(type),
+         name = VALUES(name),
+         target = VALUES(target),
+         schedule_label = VALUES(schedule_label),
+         note = VALUES(note),
+         image_key = VALUES(image_key)`,
+      [id, type, name, target, schedule, note || null, image_key],
+    );
+
+    await connection.query(
+      "DELETE FROM distribution_location_recipients WHERE location_id = ?",
+      [id],
+    );
+
+    const recipientRows = Array.isArray(recipients)
+      ? recipients
+          .filter((item) => item?.label && item?.target)
+          .map((item) => [id, item.label, item.target])
+      : [];
+
+    if (recipientRows.length > 0) {
+      await connection.query(
+        "INSERT INTO distribution_location_recipients (location_id, label, target) VALUES ?",
+        [recipientRows],
+      );
+    }
+
+    await connection.commit();
+    res.status(201).json({ message: "Lokasi distribusi tersimpan" });
+  } catch (error) {
+    await connection.rollback();
+    res.status(500).json({ error: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// GET /api/menu/weekly-plans - Jadwal mingguan semua lokasi
+router.get("/weekly-plans", async (_req, res) => {
+  try {
+    const [items] = await db.query(`
+      SELECT location_id, DATE_FORMAT(date_key, '%Y-%m-%d') AS date_key,
+             menu_id, slot_type, position
+      FROM weekly_plan_items
+      ORDER BY location_id, date_key, slot_type, position
+    `);
+    const [savedRows] = await db.query(`
+      SELECT location_id, saved_at
+      FROM weekly_plan_saved_status
+    `);
+
+    const plans = {};
+    items.forEach((item) => {
+      if (!plans[item.location_id]) plans[item.location_id] = {};
+      if (!plans[item.location_id][item.date_key]) {
+        plans[item.location_id][item.date_key] = {
+          makananIds: [],
+          minumanIds: [],
+        };
+      }
+
+      const key = item.slot_type === "minuman" ? "minumanIds" : "makananIds";
+      plans[item.location_id][item.date_key][key].push(Number(item.menu_id));
+    });
+
+    const savedScheduleMap = {};
+    savedRows.forEach((item) => {
+      savedScheduleMap[item.location_id] = new Date(
+        item.saved_at,
+      ).toISOString();
+    });
+
+    res.json({ plans, savedScheduleMap });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/menu/weekly-plans - Simpan jadwal mingguan semua lokasi
+router.put("/weekly-plans", async (req, res) => {
+  const plans = req.body?.plans;
+  const savedScheduleMap = req.body?.savedScheduleMap || {};
+
+  if (!plans || typeof plans !== "object") {
+    return res.status(400).json({ error: "plans harus berupa object" });
+  }
+
+  const menuIds = new Set();
+  Object.values(plans).forEach((locationPlan) => {
+    if (!locationPlan || typeof locationPlan !== "object") return;
+    Object.values(locationPlan).forEach((day) => {
+      const normalized = normalizeDayPlan(day);
+      [...normalized.makananIds, ...normalized.minumanIds].forEach((id) =>
+        menuIds.add(id),
+      );
+    });
+  });
+
+  const existingMenuIds = new Set();
+  if (menuIds.size > 0) {
+    const ids = Array.from(menuIds);
+    const [rows] = await db.query(
+      `SELECT id FROM menus WHERE id IN (${ids.map(() => "?").join(",")})`,
+      ids,
+    );
+    rows.forEach((row) => existingMenuIds.add(Number(row.id)));
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.query("DELETE FROM weekly_plan_items");
+    await connection.query("DELETE FROM weekly_plan_saved_status");
+
+    const itemRows = [];
+    Object.entries(plans).forEach(([locationId, locationPlan]) => {
+      if (!locationPlan || typeof locationPlan !== "object") return;
+      Object.entries(locationPlan).forEach(([dateKey, day]) => {
+        if (!isDateKey(dateKey)) return;
+        const normalized = normalizeDayPlan(day);
+        normalized.makananIds.forEach((menuId, idx) => {
+          if (existingMenuIds.has(menuId)) {
+            itemRows.push([locationId, dateKey, menuId, "makanan", idx]);
+          }
+        });
+        normalized.minumanIds.forEach((menuId, idx) => {
+          if (existingMenuIds.has(menuId)) {
+            itemRows.push([locationId, dateKey, menuId, "minuman", idx]);
+          }
+        });
+      });
+    });
+
+    if (itemRows.length > 0) {
+      await connection.query(
+        `INSERT INTO weekly_plan_items
+         (location_id, date_key, menu_id, slot_type, position)
+         VALUES ?`,
+        [itemRows],
+      );
+    }
+
+    const savedRows = Object.entries(savedScheduleMap)
+      .filter(([, value]) => value)
+      .map(([locationId, value]) => [
+        locationId,
+        Number.isNaN(Date.parse(value)) ? new Date() : new Date(value),
+      ]);
+
+    if (savedRows.length > 0) {
+      await connection.query(
+        "INSERT INTO weekly_plan_saved_status (location_id, saved_at) VALUES ?",
+        [savedRows],
+      );
+    }
+
+    await connection.commit();
+    res.json({
+      message: "Jadwal mingguan tersimpan",
+      item_count: itemRows.length,
+    });
+  } catch (error) {
+    await connection.rollback();
+    res.status(500).json({ error: error.message });
+  } finally {
+    connection.release();
   }
 });
 
@@ -444,11 +723,17 @@ router.post("/:id/analyze", async (req, res) => {
 
     const menu = menuRows[0];
     const nutrition = nutritionRows[0];
+    const [manualRows] = await db.query(
+      "SELECT menu_id, nama, nilai, satuan FROM menu_manual_macronutrients WHERE menu_id = ? ORDER BY id",
+      [req.params.id],
+    );
 
     // Run AI analysis (async — powered by Google Gemini AI)
     const analysis = await aiService.analyzeNutrition(nutrition, menu.nama, {
+      targetKey: req.body?.targetKey || req.body?.target_key,
       kategori: menu.kategori,
       deskripsi: menu.deskripsi,
+      manualNutrients: manualRows,
     });
 
     // Save recommendations to database

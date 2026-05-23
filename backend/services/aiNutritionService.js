@@ -1,20 +1,16 @@
-// Helper: Ekstrak blok JSON dari teks Gemini (mengatasi markdown, komentar, dsb)
 function extractJsonFromText(text) {
-  // Bersihkan markdown code fence
   let cleaned = text
     .replace(/^```json\s*/i, "")
     .replace(/^```\s*/, "")
     .replace(/```$/, "")
-    .replace(/^[^\{]*?\{/s, "{") // hapus apapun sebelum '{'
-    .replace(/\}[^\}]*?$/, "}") // hapus apapun setelah '}' terakhir
+    .replace(/^[^{]*?\{/s, "{")
+    .replace(/\}[^}]*?$/, "}")
     .trim();
 
-  // Jika sudah valid JSON, langsung parse
   try {
     return JSON.parse(cleaned);
   } catch {}
 
-  // Cari blok JSON dengan regex (ambil {...} terbesar)
   const match = cleaned.match(/\{[\s\S]*\}/);
   if (match) {
     try {
@@ -22,166 +18,446 @@ function extractJsonFromText(text) {
     } catch {}
   }
 
-  // Gagal, lempar error
   throw new Error("Respons Gemini tidak bisa di-parse sebagai JSON");
 }
-/**
- * AI Nutrition Analysis Service
- * Modul analisis gizi menggunakan Google Gemini AI API
- * Menggantikan sistem rule-based dengan AI generatif yang lebih cerdas dan dinamis
- *
- * Struktur respons dipertahankan agar kompatibel dengan frontend yang sudah ada.
- */
 
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { retryWithBackoff } = require("../utils/retryHelper");
 
-// Standar AKG per porsi dipisahkan berdasarkan profil menu
-const STANDAR_GIZI_PROFILES = {
-  makanan: {
-    kalori: { min: 300, max: 700, unit: "kkal", label: "Kalori" },
-    protein: { min: 15, max: 40, unit: "g", label: "Protein" },
-    lemak: { min: 10, max: 25, unit: "g", label: "Lemak" },
-    karbohidrat: { min: 40, max: 80, unit: "g", label: "Karbohidrat" },
-    serat: { min: 3, max: 10, unit: "g", label: "Serat" },
-    gula: { min: 0, max: 15, unit: "g", label: "Gula" },
+const STATUS = {
+  kurang: "Kurang",
+  cukup: "Cukup",
+  optimal: "Optimal",
+  mulaiBerlebih: "Mulai Berlebih",
+  terlaluBerlebih: "Terlalu Berlebih",
+  tercatat: "Tercatat",
+};
+
+const TARGET_AKG_2019 = {
+  siswa: {
+    label: "Siswa",
+    focus:
+      "energi untuk aktivitas belajar, protein untuk pertumbuhan, zat besi, vitamin A/C, dan keseimbangan makro",
+    nutrients: {
+      kalori: { label: "Kalori", target: 600, unit: "kkal", category: "macro" },
+      protein: { label: "Protein", target: 25, unit: "g", category: "macro" },
+      karbohidrat: {
+        label: "Karbohidrat",
+        target: 80,
+        unit: "g",
+        category: "macro",
+      },
+      lemak: { label: "Lemak", target: 18, unit: "g", category: "macro" },
+      serat: { label: "Serat", target: 8, unit: "g", category: "micro" },
+      gula: { label: "Gula", target: 12, unit: "g", category: "micro", limitOnly: true },
+      "vitamin a": { label: "Vitamin A", target: 180, unit: "mcg", category: "micro" },
+      "vitamin c": { label: "Vitamin C", target: 18, unit: "mg", category: "micro" },
+      "vitamin d": { label: "Vitamin D", target: 4.5, unit: "mcg", category: "micro" },
+      kalsium: { label: "Kalsium", target: 300, unit: "mg", category: "micro" },
+      "zat besi": { label: "Zat Besi", target: 3, unit: "mg", category: "micro" },
+      zinc: { label: "Zinc", target: 2.5, unit: "mg", category: "micro" },
+      folat: { label: "Folat", target: 120, unit: "mcg", category: "micro" },
+      natrium: { label: "Natrium", target: 450, unit: "mg", category: "micro", limitOnly: true },
+      kalium: { label: "Kalium", target: 900, unit: "mg", category: "micro" },
+      "omega 3": { label: "Omega-3", target: 0.3, unit: "g", category: "micro" },
+    },
   },
-  minuman: {
-    kalori: { min: 80, max: 220, unit: "kkal", label: "Kalori" },
-    protein: { min: 2, max: 12, unit: "g", label: "Protein" },
-    lemak: { min: 0, max: 8, unit: "g", label: "Lemak" },
-    karbohidrat: { min: 8, max: 30, unit: "g", label: "Karbohidrat" },
-    serat: { min: 0, max: 5, unit: "g", label: "Serat" },
-    gula: { min: 0, max: 10, unit: "g", label: "Gula" },
+  balita: {
+    label: "Balita",
+    focus:
+      "kepadatan energi, protein mudah cerna, lemak cukup, zat besi, zinc, vitamin A, dan tekstur menu",
+    nutrients: {
+      kalori: { label: "Kalori", target: 450, unit: "kkal", category: "macro" },
+      protein: { label: "Protein", target: 20, unit: "g", category: "macro" },
+      karbohidrat: {
+        label: "Karbohidrat",
+        target: 65,
+        unit: "g",
+        category: "macro",
+      },
+      lemak: { label: "Lemak", target: 15, unit: "g", category: "macro" },
+      serat: { label: "Serat", target: 5, unit: "g", category: "micro" },
+      gula: { label: "Gula", target: 8, unit: "g", category: "micro", limitOnly: true },
+      "vitamin a": { label: "Vitamin A", target: 120, unit: "mcg", category: "micro" },
+      "vitamin c": { label: "Vitamin C", target: 12, unit: "mg", category: "micro" },
+      "vitamin d": { label: "Vitamin D", target: 4.5, unit: "mcg", category: "micro" },
+      kalsium: { label: "Kalsium", target: 195, unit: "mg", category: "micro" },
+      "zat besi": { label: "Zat Besi", target: 2.1, unit: "mg", category: "micro" },
+      zinc: { label: "Zinc", target: 1.5, unit: "mg", category: "micro" },
+      folat: { label: "Folat", target: 48, unit: "mcg", category: "micro" },
+      natrium: { label: "Natrium", target: 240, unit: "mg", category: "micro", limitOnly: true },
+      kalium: { label: "Kalium", target: 780, unit: "mg", category: "micro" },
+      "omega 3": { label: "Omega-3", target: 0.21, unit: "g", category: "micro" },
+    },
+  },
+  ibu_hamil: {
+    label: "Ibu Hamil",
+    focus:
+      "tambahan energi, protein, zat besi, folat, kalsium, vitamin D, dan kualitas karbohidrat",
+    nutrients: {
+      kalori: { label: "Kalori", target: 750, unit: "kkal", category: "macro" },
+      protein: { label: "Protein", target: 30, unit: "g", category: "macro" },
+      karbohidrat: {
+        label: "Karbohidrat",
+        target: 90,
+        unit: "g",
+        category: "macro",
+      },
+      lemak: { label: "Lemak", target: 22, unit: "g", category: "macro" },
+      serat: { label: "Serat", target: 10, unit: "g", category: "micro" },
+      gula: { label: "Gula", target: 15, unit: "g", category: "micro", limitOnly: true },
+      "vitamin a": { label: "Vitamin A", target: 255, unit: "mcg", category: "micro" },
+      "vitamin c": { label: "Vitamin C", target: 25.5, unit: "mg", category: "micro" },
+      "vitamin d": { label: "Vitamin D", target: 4.5, unit: "mcg", category: "micro" },
+      kalsium: { label: "Kalsium", target: 360, unit: "mg", category: "micro" },
+      "zat besi": { label: "Zat Besi", target: 8.1, unit: "mg", category: "micro" },
+      zinc: { label: "Zinc", target: 3.6, unit: "mg", category: "micro" },
+      folat: { label: "Folat", target: 180, unit: "mcg", category: "micro" },
+      natrium: { label: "Natrium", target: 450, unit: "mg", category: "micro", limitOnly: true },
+      kalium: { label: "Kalium", target: 1410, unit: "mg", category: "micro" },
+      "omega 3": { label: "Omega-3", target: 0.42, unit: "g", category: "micro" },
+    },
+  },
+  ibu_menyusui: {
+    label: "Ibu Menyusui",
+    focus:
+      "energi laktasi, protein, cairan, kalsium, vitamin A/C, zinc, dan lemak sehat",
+    nutrients: {
+      kalori: { label: "Kalori", target: 800, unit: "kkal", category: "macro" },
+      protein: { label: "Protein", target: 32, unit: "g", category: "macro" },
+      karbohidrat: {
+        label: "Karbohidrat",
+        target: 95,
+        unit: "g",
+        category: "macro",
+      },
+      lemak: { label: "Lemak", target: 24, unit: "g", category: "macro" },
+      serat: { label: "Serat", target: 11, unit: "g", category: "micro" },
+      gula: { label: "Gula", target: 15, unit: "g", category: "micro", limitOnly: true },
+      "vitamin a": { label: "Vitamin A", target: 255, unit: "mcg", category: "micro" },
+      "vitamin c": { label: "Vitamin C", target: 30, unit: "mg", category: "micro" },
+      "vitamin d": { label: "Vitamin D", target: 4.5, unit: "mcg", category: "micro" },
+      kalsium: { label: "Kalsium", target: 360, unit: "mg", category: "micro" },
+      "zat besi": { label: "Zat Besi", target: 5.4, unit: "mg", category: "micro" },
+      zinc: { label: "Zinc", target: 3.9, unit: "mg", category: "micro" },
+      folat: { label: "Folat", target: 150, unit: "mcg", category: "micro" },
+      natrium: { label: "Natrium", target: 450, unit: "mg", category: "micro", limitOnly: true },
+      kalium: { label: "Kalium", target: 1530, unit: "mg", category: "micro" },
+      "omega 3": { label: "Omega-3", target: 0.42, unit: "g", category: "micro" },
+    },
+  },
+  lansia: {
+    label: "Lansia",
+    focus:
+      "protein per porsi, serat, natrium, kalsium, vitamin D, dan lemak tidak berlebih",
+    nutrients: {
+      kalori: { label: "Kalori", target: 520, unit: "kkal", category: "macro" },
+      protein: { label: "Protein", target: 24, unit: "g", category: "macro" },
+      karbohidrat: {
+        label: "Karbohidrat",
+        target: 70,
+        unit: "g",
+        category: "macro",
+      },
+      lemak: { label: "Lemak", target: 16, unit: "g", category: "macro" },
+      serat: { label: "Serat", target: 9, unit: "g", category: "micro" },
+      gula: { label: "Gula", target: 10, unit: "g", category: "micro", limitOnly: true },
+      "vitamin a": { label: "Vitamin A", target: 180, unit: "mcg", category: "micro" },
+      "vitamin c": { label: "Vitamin C", target: 22.5, unit: "mg", category: "micro" },
+      "vitamin d": { label: "Vitamin D", target: 6, unit: "mcg", category: "micro" },
+      kalsium: { label: "Kalsium", target: 360, unit: "mg", category: "micro" },
+      "zat besi": { label: "Zat Besi", target: 2.4, unit: "mg", category: "micro" },
+      zinc: { label: "Zinc", target: 3.3, unit: "mg", category: "micro" },
+      folat: { label: "Folat", target: 120, unit: "mcg", category: "micro" },
+      natrium: { label: "Natrium", target: 360, unit: "mg", category: "micro", limitOnly: true },
+      kalium: { label: "Kalium", target: 1410, unit: "mg", category: "micro" },
+      "omega 3": { label: "Omega-3", target: 0.33, unit: "g", category: "micro" },
+    },
   },
 };
 
-// Backward compatibility untuk import lama
-const STANDAR_GIZI = STANDAR_GIZI_PROFILES.makanan;
+const STANDAR_GIZI = TARGET_AKG_2019.siswa.nutrients;
 
-function detectNutritionProfile(namaMenu, menuContext = {}) {
-  const explicitType = String(menuContext.menuType || "").toLowerCase();
-  const kategori = String(menuContext.kategori || "").toLowerCase();
-  const text = `${namaMenu || ""} ${menuContext.deskripsi || ""}`.toLowerCase();
+const NUTRIENT_ALIASES = {
+  calorie: "kalori",
+  calories: "kalori",
+  energi: "kalori",
+  energy: "kalori",
+  karbo: "karbohidrat",
+  carbohydrate: "karbohidrat",
+  carbohydrates: "karbohidrat",
+  carb: "karbohidrat",
+  carbs: "karbohidrat",
+  fat: "lemak",
+  lipid: "lemak",
+  fiber: "serat",
+  sugar: "gula",
+  "vit a": "vitamin a",
+  vitamina: "vitamin a",
+  "vitamin_a": "vitamin a",
+  "vit c": "vitamin c",
+  vitaminc: "vitamin c",
+  "vitamin_c": "vitamin c",
+  "vit d": "vitamin d",
+  vitamind: "vitamin d",
+  "vitamin_d": "vitamin d",
+  ca: "kalsium",
+  calcium: "kalsium",
+  fe: "zat besi",
+  iron: "zat besi",
+  besi: "zat besi",
+  seng: "zinc",
+  zn: "zinc",
+  folate: "folat",
+  sodium: "natrium",
+  potassium: "kalium",
+  omega3: "omega 3",
+  "omega-3": "omega 3",
+};
 
-  if (explicitType === "minuman") return "minuman";
-
-  const drinkFlags = [
-    "minuman",
-    "drink",
-    "jus",
-    "susu",
-    "teh",
-    "kopi",
-    "smoothie",
-    "sirup",
-    "es ",
-    "wedang",
-    "infused",
-  ];
-
-  if (drinkFlags.some((flag) => kategori.includes(flag))) return "minuman";
-  if (drinkFlags.some((flag) => text.includes(flag))) return "minuman";
-
-  return "makanan";
+function normalizeName(name) {
+  const key = String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+  return NUTRIENT_ALIASES[key] || key;
 }
 
-// ============================================================
-// STEP 1: Hitung skor gizi secara matematis (deterministik)
-// ============================================================
+function canonicalTargetKey(value) {
+  const key = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s-]+/g, "_");
 
-/**
- * Menghitung analisis per-nutrisi dan skor keseluruhan secara matematis.
- * @param {Object} nutrition
- * @param {Object} standarGizi
- * @returns {{ analysis, overallScore, overallStatus, nutrientIssues }}
- */
-function computeNutrientAnalysis(nutrition, standarGizi) {
+  if (key.includes("balita")) return "balita";
+  if (key.includes("hamil")) return "ibu_hamil";
+  if (key.includes("menyusui") || key.includes("laktasi")) return "ibu_menyusui";
+  if (key.includes("lansia")) return "lansia";
+  return "siswa";
+}
+
+function convertUnit(value, fromUnit, toUnit) {
+  const from = String(fromUnit || toUnit || "").toLowerCase().replace("ug", "mcg");
+  const to = String(toUnit || from || "").toLowerCase().replace("ug", "mcg");
+  const numeric = Number(value || 0);
+
+  if (!Number.isFinite(numeric)) return 0;
+  if (!from || !to || from === to) return numeric;
+  if (from === "g" && to === "mg") return numeric * 1000;
+  if (from === "mg" && to === "g") return numeric / 1000;
+  if (from === "mg" && to === "mcg") return numeric * 1000;
+  if (from === "mcg" && to === "mg") return numeric / 1000;
+  if (from === "g" && to === "mcg") return numeric * 1000000;
+  if (from === "mcg" && to === "g") return numeric / 1000000;
+  return numeric;
+}
+
+function inferStatus(percent, limitOnly = false) {
+  if (limitOnly) {
+    if (percent <= 100) return { label: STATUS.optimal, severity: "success" };
+    if (percent <= 120) return { label: STATUS.mulaiBerlebih, severity: "warning" };
+    return { label: STATUS.terlaluBerlebih, severity: "danger" };
+  }
+
+  if (percent < 70) return { label: STATUS.kurang, severity: "warning" };
+  if (percent < 90) return { label: STATUS.cukup, severity: "warning" };
+  if (percent <= 110) return { label: STATUS.optimal, severity: "success" };
+  if (percent <= 120) return { label: STATUS.mulaiBerlebih, severity: "warning" };
+  return { label: STATUS.terlaluBerlebih, severity: "danger" };
+}
+
+function buildNutrition(nutrition = {}, manualNutrients = []) {
+  const result = {};
+
+  ["kalori", "protein", "lemak", "karbohidrat", "serat", "gula"].forEach((key) => {
+    const value = Number(nutrition[key] || 0);
+    if (Number.isFinite(value) && value > 0) {
+      result[key] = {
+        value,
+        unit: key === "kalori" ? "kkal" : "g",
+        source: "menu_nutrition",
+      };
+    }
+  });
+
+  if (nutrition.micronutrients && typeof nutrition.micronutrients === "object") {
+    Object.entries(nutrition.micronutrients).forEach(([name, value]) => {
+      const key = normalizeName(name);
+      const numeric = Number(value || 0);
+      if (key && numeric > 0) {
+        result[key] = { value: numeric, unit: "", source: "micronutrients" };
+      }
+    });
+  }
+
+  manualNutrients.forEach((item) => {
+    const key = normalizeName(item.nama || item.name || item.label);
+    const numeric = Number(item.nilai ?? item.value ?? 0);
+    if (!key || !Number.isFinite(numeric) || numeric <= 0) return;
+
+    if (!result[key]) {
+      result[key] = {
+        value: 0,
+        unit: item.satuan || item.unit || "g",
+        source: "manual",
+        original_label: item.nama || item.name || item.label,
+      };
+    }
+
+    result[key].value += numeric;
+  });
+
+  return result;
+}
+
+function computeNutrientAnalysis(nutrition, targetKey) {
+  const target = TARGET_AKG_2019[targetKey] || TARGET_AKG_2019.siswa;
   const analysis = {};
   const nutrientIssues = [];
+  const warnings = [];
   let totalScore = 0;
   let maxScore = 0;
 
-  for (const [nutrient, standard] of Object.entries(standarGizi)) {
-    const value = Number(nutrition[nutrient] || 0);
-    let status = "optimal";
-    let score = 100;
+  Object.entries(nutrition).forEach(([key, data]) => {
+    const standard = target.nutrients[key];
+    const fallbackLabel =
+      data.original_label ||
+      key.replace(/\b\w/g, (char) => char.toUpperCase()).replace("Omega 3", "Omega-3");
+    const unit = standard?.unit || data.unit || "";
+    const value = standard
+      ? convertUnit(data.value, data.unit, standard.unit)
+      : Number(data.value || 0);
 
-    if (value < standard.min) {
-      status = "rendah";
-      score = standard.min > 0 ? Math.round((value / standard.min) * 100) : 100;
+    if (!Number.isFinite(value) || value <= 0) return;
 
-      nutrientIssues.push({
-        key: nutrient,
-        label: standard.label,
-        status: "rendah",
+    if (!standard) {
+      analysis[key] = {
+        label: fallbackLabel,
         value,
-        unit: standard.unit,
-        standar: `min ${standard.min} ${standard.unit}`,
-      });
-    } else if (value > standard.max) {
-      status = "berlebih";
-      score =
-        standard.max > 0
-          ? Math.max(
-              0,
-              Math.round(100 - ((value - standard.max) / standard.max) * 100),
-            )
-          : 0;
-
-      nutrientIssues.push({
-        key: nutrient,
-        label: standard.label,
-        status: "berlebih",
-        value,
-        unit: standard.unit,
-        standar: `max ${standard.max} ${standard.unit}`,
-      });
+        unit,
+        min: 0,
+        max: 0,
+        target: null,
+        percent: null,
+        status: STATUS.tercatat,
+        score: 100,
+        category: key in STANDAR_GIZI ? "macro" : "micro",
+      };
+      return;
     }
 
-    analysis[nutrient] = {
+    const percent =
+      standard.target > 0 ? Math.round((value / standard.target) * 100) : 0;
+    const status = inferStatus(percent, Boolean(standard.limitOnly));
+    const score = standard.limitOnly
+      ? percent <= 100
+        ? 100
+        : Math.max(0, Math.round(100 - (percent - 100) * 1.5))
+      : Math.max(0, Math.min(100, percent <= 100 ? percent : 100 - (percent - 100)));
+
+    analysis[key] = {
       label: standard.label,
-      value,
+      value: Math.round(value * 10) / 10,
       unit: standard.unit,
-      min: standard.min,
-      max: standard.max,
-      status,
+      min: Math.round(standard.target * 0.9 * 10) / 10,
+      max: Math.round(standard.target * 1.1 * 10) / 10,
+      target: standard.target,
+      percent,
+      status: status.label,
       score: Math.max(0, Math.min(100, score)),
+      category: standard.category,
+      limit_only: Boolean(standard.limitOnly),
     };
 
     totalScore += Math.max(0, Math.min(100, score));
     maxScore += 100;
+
+    if (status.severity !== "success") {
+      nutrientIssues.push({
+        key,
+        label: standard.label,
+        status: status.label,
+        severity: status.severity,
+        value: Math.round(value * 10) / 10,
+        unit: standard.unit,
+        target: standard.target,
+        percent,
+        category: standard.category,
+        limitOnly: Boolean(standard.limitOnly),
+      });
+    }
+  });
+
+  const core = ["kalori", "protein", "karbohidrat", "lemak"];
+  const availableCore = core.filter((key) => analysis[key]);
+  const availableMicro = Object.values(analysis).filter(
+    (item) => item.category === "micro",
+  );
+
+  if (availableCore.length < 4) {
+    warnings.push(
+      "Data makronutrien belum lengkap. Hasil AI bersifat sementara dan belum bisa dianggap final.",
+    );
   }
 
-  const overallScore = Math.round((totalScore / maxScore) * 100);
-  let overallStatus = "Baik";
-  if (overallScore < 50) overallStatus = "Perlu Perbaikan";
-  else if (overallScore < 75) overallStatus = "Cukup";
+  if (availableMicro.length === 0) {
+    warnings.push(
+      "Data mikronutrien belum tersedia. Tambahkan vitamin/mineral manual agar analisis ahli gizi lebih utuh.",
+    );
+  }
 
-  return { analysis, overallScore, overallStatus, nutrientIssues };
+  const overallScore =
+    maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
+  let overallStatus = STATUS.optimal;
+  if (warnings.length > 0) overallStatus = "Data Belum Lengkap";
+  else if (overallScore < 70) overallStatus = STATUS.kurang;
+  else if (overallScore < 90) overallStatus = STATUS.cukup;
+  else if (overallScore > 120) overallStatus = STATUS.terlaluBerlebih;
+  else if (overallScore > 110) overallStatus = STATUS.mulaiBerlebih;
+
+  return {
+    analysis,
+    overallScore,
+    overallStatus,
+    nutrientIssues,
+    warnings,
+    target,
+  };
 }
 
-// ============================================================
-// STEP 2: Generasi rekomendasi via Gemini AI
-// ============================================================
+function getMacroDistribution(analysis) {
+  const protein = Number(analysis.protein?.value || 0) * 4;
+  const karbo = Number(analysis.karbohidrat?.value || 0) * 4;
+  const lemak = Number(analysis.lemak?.value || 0) * 9;
+  const total = protein + karbo + lemak;
 
-/**
- * Membangun teks prompt untuk Gemini berdasarkan data gizi dan isu yang terdeteksi.
- */
+  if (total <= 0) return null;
+
+  return {
+    protein_pct: Math.round((protein / total) * 100),
+    karbohidrat_pct: Math.round((karbo / total) * 100),
+    lemak_pct: Math.round((lemak / total) * 100),
+  };
+}
+
 function buildPrompt(
   namaMenu,
-  nutrition,
+  target,
+  analysis,
   nutrientIssues,
   overallScore,
   overallStatus,
-  standarGizi,
-  nutritionProfile,
+  macroDistribution,
+  warnings,
 ) {
-  const nutritionLines = Object.entries(standarGizi)
-    .map(
-      ([nutrient, standard]) =>
-        `  - ${standard.label.padEnd(11, " ")} : ${nutrition[nutrient] || 0} ${standard.unit} (standar: ${standard.min}–${standard.max} ${standard.unit})`,
-    )
+  const nutritionLines = Object.values(analysis)
+    .map((item) => {
+      const targetText = item.target
+        ? `target ${item.target} ${item.unit}, ${item.percent}%`
+        : "target AKG tidak tersedia";
+      return `- ${item.label}: ${item.value} ${item.unit} (${targetText}, status ${item.status})`;
+    })
     .join("\n");
 
   const issuesText =
@@ -189,417 +465,274 @@ function buildPrompt(
       ? nutrientIssues
           .map(
             (i) =>
-              `  - ${i.label}: ${i.value} ${i.unit} → ${i.status} (standar: ${i.standar})`,
+              `- ${i.label}: ${i.value} ${i.unit}, target ${i.target} ${i.unit}, ${i.percent}%, status ${i.status}`,
           )
           .join("\n")
-      : "  - Semua nilai gizi berada dalam batas normal.";
+      : "- Tidak ada isu besar pada nutrien yang tersedia.";
 
-  return `Kamu adalah ahli gizi profesional untuk program MBG (Makan Bergizi Gratis) Indonesia. Tugasmu adalah menganalisis komposisi gizi sebuah menu dan memberikan rekomendasi perbaikan yang spesifik, praktis, dan berbasis bahan makanan lokal Indonesia.
+  const distributionText = macroDistribution
+    ? `Protein ${macroDistribution.protein_pct}%, karbohidrat ${macroDistribution.karbohidrat_pct}%, lemak ${macroDistribution.lemak_pct}% dari energi makro.`
+    : "Distribusi makro belum bisa dihitung.";
 
-DATA MENU
----------
-Nama Menu   : "${namaMenu}"
-Profil Menu : ${nutritionProfile === "minuman" ? "Minuman" : "Makanan"}
-Skor Gizi   : ${overallScore}/100 (${overallStatus})
+  const warningText =
+    warnings.length > 0 ? warnings.map((w) => `- ${w}`).join("\n") : "- Data cukup untuk analisis.";
 
-Nilai Gizi per Porsi:
+  return `Kamu adalah ahli gizi profesional program MBG Indonesia. Analisis menu sebagai nutrition reasoning engine, bukan komentar generik.
+
+DATA
+Nama menu: ${namaMenu}
+Target: ${target.label}
+Fokus target: ${target.focus}
+Skor: ${overallScore}/100
+Status: ${overallStatus}
+Distribusi makro: ${distributionText}
+
+Zat gizi tersedia:
 ${nutritionLines}
 
-Masalah Gizi yang Terdeteksi:
+Isu berbasis data:
 ${issuesText}
 
-INSTRUKSI OUTPUT
-----------------
-Balas HANYA dengan satu objek JSON valid (tanpa markdown code block, tanpa teks di luar JSON):
+Peringatan kelengkapan data:
+${warningText}
 
+Balas HANYA JSON valid:
 {
-  "message": "<Evaluasi keseluruhan menu dalam 1–2 kalimat yang informatif, menyebutkan nama menu>",
+  "message": "1-2 kalimat evaluasi berbasis data",
+  "catatan": "insight utama masalah menu, spesifik menyebut nutrien dan alasan",
+  "tips": "saran praktis koreksi komposisi menu",
+  "kesimpulan": "ringkasan singkat, tegas, profesional untuk ahli gizi",
   "recommendations": [
     {
       "jenis": "Gizi",
-      "nutrient": "<label nutrisi bermasalah, atau null jika rekomendasi bersifat umum>",
-      "severity": "<'warning' | 'danger' | 'success'>",
-      "pesan": "[<Label Nutrisi>] <Rekomendasi spesifik dan actionable>",
-      "detail": "<Detail nilai saat ini vs standar, atau null>"
+      "nutrient": "nama zat gizi atau null",
+      "severity": "success|warning|danger",
+      "pesan": "rekomendasi spesifik berbasis angka",
+      "detail": "nilai vs target, atau null"
     }
   ]
 }
 
-ATURAN PENGISIAN:
-- "severity" → "warning" jika nilai rendah, "danger" jika nilai berlebih, "success" jika semua optimal.
-- Jika semua nutrisi optimal, berikan tepat 1 rekomendasi dengan severity "success".
-- Rekomendasi harus menyebutkan nama bahan makanan Indonesia yang konkret (misal: tempe, tahu, ikan lele, kangkung, bayam, ubi, singkong, dll).
-- Setiap rekomendasi harus berkaitan dengan satu masalah gizi spesifik.
-- Prioritaskan 3-4 rekomendasi paling penting; maksimal 6 jika isu memang banyak.
-- Tiap rekomendasi harus singkat, kritis, dan langsung bisa dilakukan dapur produksi.
-- Jelaskan dampak praktisnya: tambah, kurangi, atau ganti bahan/porsi.
-- Gunakan bahasa Indonesia yang natural, jelas, dan mudah dipahami masyarakat umum.
-- Jangan tambahkan teks, catatan, atau penjelasan di luar JSON.`;
+Aturan:
+- Jangan tulis generik seperti menu baik/menu sehat tanpa alasan.
+- Kaitkan analisis dengan target ${target.label}.
+- Bahas energi, distribusi makro, dominasi zat gizi, dan mikro yang tersedia.
+- Jika data belum lengkap, nyatakan analisis sementara.
+- Maksimal 5 rekomendasi paling penting.`;
 }
 
-/**
- * Memanggil Gemini API dan mem-parse hasilnya menjadi { message, recommendations }.
- * Dengan retry logic untuk mengatasi network errors dan temporary failures.
- * @throws {Error} jika API key tidak ada, request gagal, atau JSON tidak valid.
- */
-async function callGeminiAPI(
-  namaMenu,
-  nutrition,
-  nutrientIssues,
-  overallScore,
-  overallStatus,
-  standarGizi,
-  nutritionProfile,
-) {
+async function callGeminiAPI(payload) {
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey || apiKey === "your_gemini_api_key_here") {
     throw new Error("GEMINI_API_KEY belum dikonfigurasi di file .env");
   }
 
-  // Validasi format API key minimal
   if (apiKey.length < 20) {
-    throw new Error(
-      "GEMINI_API_KEY tampak tidak valid (terlalu pendek). Periksa kembali di file .env",
-    );
+    throw new Error("GEMINI_API_KEY tampak tidak valid");
   }
 
-  const prompt = buildPrompt(
-    namaMenu,
-    nutrition,
-    nutrientIssues,
-    overallScore,
-    overallStatus,
-    standarGizi,
-    nutritionProfile,
-  );
+  const prompt = buildPrompt(...payload);
 
-  // Hanya 1 percobaan, tanpa retry
   const result = await retryWithBackoff(
     async () => {
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({
         model: "gemini-2.5-flash-lite",
         generationConfig: {
-          temperature: 0.7,
+          temperature: 0.45,
           topP: 0.9,
-          maxOutputTokens: 1024,
+          maxOutputTokens: 1400,
         },
       });
 
-      try {
-        const response = await model.generateContent(prompt);
-        return response.response.text().trim();
-      } catch (err) {
-        // Re-throw dengan konteks yang lebih jelas
-        const msg = err.message || "";
-
-        // Parse error message untuk error handling yang lebih baik
-        if (
-          msg.includes("400") ||
-          msg.includes("API_KEY_INVALID") ||
-          msg.includes("API key expired")
-        ) {
-          const error = new Error(
-            "API key expired atau tidak valid. Silakan renew API key di Google Cloud Console.",
-          );
-          error.code = "API_KEY_EXPIRED";
-          throw error;
-        }
-
-        if (msg.includes("401") || msg.includes("PERMISSION_DENIED")) {
-          const error = new Error(
-            "Permission denied. Pastikan Generative Language API sudah diaktifkan.",
-          );
-          error.code = "PERMISSION_DENIED";
-          throw error;
-        }
-
-        // Re-throw original error untuk dihandle oleh retry logic
-        throw err;
-      }
+      const response = await model.generateContent(prompt);
+      return response.response.text().trim();
     },
     {
-      maxRetries: 0, // hanya 1 percobaan, tanpa retry
+      maxRetries: 0,
       initialDelay: 1500,
       backoffMultiplier: 2,
-      name: `Gemini API (${namaMenu})`,
+      name: "Gemini nutrition reasoning",
     },
   );
 
-  // Ekstrak blok JSON toleran dari respons Gemini
   const parsed = extractJsonFromText(result);
-
   if (!parsed.message || !Array.isArray(parsed.recommendations)) {
-    throw new Error(
-      "Respons Gemini tidak memiliki struktur yang diharapkan (message / recommendations)",
-    );
+    throw new Error("Respons Gemini tidak memiliki struktur yang diharapkan");
   }
 
-  // Normalisasi severity agar selalu valid
   const validSeverities = new Set(["success", "warning", "danger"]);
-  const recommendations = parsed.recommendations.map((rec) => ({
-    jenis: rec.jenis || "Gizi",
-    nutrient: rec.nutrient || null,
-    severity: validSeverities.has(rec.severity) ? rec.severity : "warning",
-    pesan: rec.pesan || "",
-    detail: rec.detail || null,
-  }));
-
-  return { message: parsed.message, recommendations };
+  return {
+    message: parsed.message,
+    catatan: parsed.catatan || parsed.message,
+    tips: parsed.tips || parsed.recommendations[0]?.pesan || parsed.message,
+    kesimpulan: parsed.kesimpulan || parsed.message,
+    recommendations: parsed.recommendations.map((rec) => ({
+      jenis: rec.jenis || "Gizi",
+      nutrient: rec.nutrient || null,
+      severity: validSeverities.has(rec.severity) ? rec.severity : "warning",
+      pesan: rec.pesan || "",
+      detail: rec.detail || null,
+    })),
+  };
 }
 
-// ============================================================
-// STEP 3: Fallback rule-based (digunakan saat Gemini gagal)
-// ============================================================
+function formatIssue(issue) {
+  return `${issue.label} ${issue.value} ${issue.unit} dari target ${issue.target} ${issue.unit} (${issue.percent}%)`;
+}
 
-const FALLBACK_RULES = {
-  makanan: {
-    Kalori: {
-      rendah:
-        "Energi masih rendah. Tambahkan porsi sumber karbohidrat padat gizi seperti nasi, jagung, ubi, atau singkong sesuai sasaran penerima.",
-      berlebih:
-        "Energi terlalu tinggi. Kurangi porsi nasi atau bahan tinggi minyak, lalu tambah sayuran agar volume tetap cukup.",
-    },
-    Protein: {
-      rendah:
-        "Protein belum cukup. Tambahkan tempe, tahu, telur, ikan lele, atau ayam agar lauk lebih mendukung pertumbuhan.",
-      berlebih:
-        "Protein melewati kebutuhan porsi ini. Kurangi lauk hewani sedikit dan seimbangkan dengan sayur serta karbohidrat kompleks.",
-    },
-    Lemak: {
-      rendah:
-        "Lemak masih rendah. Tambahkan lemak sehat secukupnya dari telur, ikan, alpukat, atau minyak dalam takaran kecil.",
-      berlebih:
-        "Lemak terlalu tinggi. Kurangi santan/minyak goreng dan pilih metode kukus, rebus, atau tumis ringan.",
-    },
-    Karbohidrat: {
-      rendah:
-        "Karbohidrat masih rendah. Tambahkan nasi, jagung, singkong, kentang, atau ubi agar energi lebih stabil.",
-      berlebih:
-        "Karbohidrat berlebih. Kurangi porsi nasi dan ganti sebagian volume dengan sayuran hijau kaya serat.",
-    },
-    Serat: {
-      rendah:
-        "Serat masih rendah. Tambahkan bayam, kangkung, wortel, buncis, atau kacang panjang agar pencernaan lebih terbantu.",
-      berlebih:
-        "Kandungan serat sangat tinggi dan mendukung kesehatan pencernaan. Pertahankan!",
-    },
-    Gula: {
-      rendah: null,
-      berlebih:
-        "Gula terlalu tinggi. Kurangi gula pasir, sirup, atau kecap manis; gunakan buah atau rempah untuk rasa alami.",
-    },
-  },
-  minuman: {
-    Kalori: {
-      rendah:
-        "Energi minuman masih rendah. Tambahkan susu UHT, oat, pisang, atau kacang hijau agar lebih mengenyangkan.",
-      berlebih:
-        "Energi minuman terlalu tinggi. Kurangi pemanis dan bahan padat kalori, lalu sesuaikan volume cairan.",
-    },
-    Protein: {
-      rendah:
-        "Protein minuman rendah. Tambahkan susu, yoghurt plain, atau kedelai agar kontribusi proteinnya lebih terasa.",
-      berlebih:
-        "Protein minuman terlalu tinggi untuk porsi ini. Seimbangkan dengan mengurangi konsentrat protein dan menambah cairan.",
-    },
-    Lemak: {
-      rendah:
-        "Lemak minuman sangat rendah. Jika diperlukan, tambahkan sedikit lemak sehat dari susu atau santan encer.",
-      berlebih:
-        "Lemak minuman tinggi. Kurangi santan kental atau krimer, gunakan susu rendah lemak sebagai pengganti.",
-    },
-    Karbohidrat: {
-      rendah:
-        "Karbohidrat minuman rendah. Tambahkan sumber karbohidrat alami seperti buah matang atau sedikit madu.",
-      berlebih:
-        "Karbohidrat minuman terlalu tinggi. Kurangi sirup/gula tambahan dan gunakan buah utuh secukupnya.",
-    },
-    Serat: {
-      rendah:
-        "Serat minuman rendah. Pertimbangkan menambah buah utuh (bukan hanya jus) seperti pisang, alpukat, atau pepaya.",
-      berlebih:
-        "Serat minuman tinggi. Pastikan tekstur tetap nyaman diminum dan sesuaikan dengan target penerima.",
-    },
-    Gula: {
-      rendah: null,
-      berlebih:
-        "Gula minuman terlalu tinggi. Kurangi gula pasir/sirup dan prioritaskan rasa manis alami dari buah utuh.",
-    },
-  },
-};
+function buildFallbackResult(namaMenu, target, nutrientIssues, analysis, warnings) {
+  const macroDistribution = getMacroDistribution(analysis);
+  const sortedIssues = [...nutrientIssues].sort((a, b) => {
+    const weight = { danger: 3, warning: 2, success: 1 };
+    return (weight[b.severity] || 0) - (weight[a.severity] || 0);
+  });
+  const primaryIssue = sortedIssues[0];
+  const macroIssues = sortedIssues.filter((i) => i.category === "macro");
+  const microIssues = sortedIssues.filter((i) => i.category === "micro");
+  const recommendations = sortedIssues.slice(0, 5).map((issue) => {
+    const isHigh =
+      issue.status === STATUS.mulaiBerlebih ||
+      issue.status === STATUS.terlaluBerlebih;
+    const action = isHigh
+      ? `Kurangi sumber ${issue.label.toLowerCase()} atau seimbangkan dengan sayur/komponen rendah energi.`
+      : `Tingkatkan ${issue.label.toLowerCase()} melalui bahan lokal yang sesuai target ${target.label}.`;
 
-function getRuleBasedRecommendations(
-  namaMenu,
-  nutrientIssues,
-  overallScore,
-  overallStatus,
-  nutritionProfile,
-) {
-  const recommendations = [];
-  const rulesByProfile =
-    FALLBACK_RULES[nutritionProfile] || FALLBACK_RULES.makanan;
-
-  for (const issue of nutrientIssues) {
-    const rule = rulesByProfile[issue.label];
-    if (!rule) continue;
-
-    const pesan = rule[issue.status];
-    if (!pesan) continue;
-
-    recommendations.push({
+    return {
       jenis: "Gizi",
       nutrient: issue.label,
-      severity: issue.status === "rendah" ? "warning" : "danger",
-      pesan: `[${issue.label}] ${pesan}`,
-      detail: `Saat ini: ${issue.value} ${issue.unit} | Standar: ${issue.standar}`,
-    });
-  }
+      severity: issue.severity,
+      pesan: `[${issue.label}] ${action}`,
+      detail: formatIssue(issue),
+    };
+  });
 
   if (recommendations.length === 0) {
     recommendations.push({
-      jenis: "Umum",
+      jenis: "Gizi",
       nutrient: null,
       severity: "success",
-      pesan: `Menu "${namaMenu}" sudah memenuhi standar gizi yang direkomendasikan. Pertahankan komposisi ini!`,
+      pesan: `Komposisi "${namaMenu}" berada dalam rentang optimal untuk target ${target.label} pada data yang tersedia.`,
       detail: null,
     });
   }
 
-  const message =
-    overallScore >= 75
-      ? `${nutritionProfile === "minuman" ? "Minuman" : "Menu"} "${namaMenu}" memiliki komposisi gizi yang baik dan seimbang.`
-      : overallScore >= 50
-        ? `${nutritionProfile === "minuman" ? "Minuman" : "Menu"} "${namaMenu}" memiliki komposisi gizi yang cukup, namun masih bisa ditingkatkan.`
-        : `${nutritionProfile === "minuman" ? "Minuman" : "Menu"} "${namaMenu}" memerlukan perbaikan signifikan pada komposisi gizinya.`;
+  const warningPrefix =
+    warnings.length > 0 ? "Data belum lengkap, sehingga analisis masih sementara. " : "";
+  const macroText = macroDistribution
+    ? `Distribusi energi makro: protein ${macroDistribution.protein_pct}%, karbohidrat ${macroDistribution.karbohidrat_pct}%, lemak ${macroDistribution.lemak_pct}%.`
+    : "Distribusi makro belum dapat dihitung.";
+  const issueText = primaryIssue
+    ? `Masalah utama: ${formatIssue(primaryIssue)} dengan status ${primaryIssue.status}.`
+    : "Tidak ada ketimpangan besar pada zat gizi yang tersedia.";
+  const microText =
+    microIssues.length > 0
+      ? `Mikronutrien perlu perhatian: ${microIssues
+          .slice(0, 3)
+          .map((i) => i.label)
+          .join(", ")}.`
+      : "Mikronutrien yang tersedia tidak menunjukkan masalah besar.";
+  const macroDominance =
+    macroDistribution && macroDistribution.karbohidrat_pct >= 65
+      ? "Karbohidrat tampak dominan, jadi porsi lauk protein dan sayur perlu dicek."
+      : macroDistribution && macroDistribution.lemak_pct >= 35
+        ? "Lemak relatif dominan, metode masak dan sumber minyak perlu dikendalikan."
+        : macroDistribution && macroDistribution.protein_pct < 12
+          ? "Kontribusi protein relatif rendah dibanding energi makro."
+          : "Distribusi makro relatif terkendali pada data yang tersedia.";
 
-  return { message, recommendations };
+  return {
+    message: `${warningPrefix}${issueText} ${macroText}`,
+    catatan: `${issueText} ${macroDominance} Fokus ${target.label}: ${target.focus}.`,
+    tips:
+      macroIssues.length > 0
+        ? recommendations[0].pesan.replace(/^\[[^\]]+\]\s*/, "")
+        : `${microText} Lengkapi data vitamin/mineral agar koreksi menu lebih presisi.`,
+    kesimpulan: `${warningPrefix}${namaMenu} ${
+      primaryIssue ? "perlu koreksi komposisi sebelum dinyatakan optimal" : "sudah layak pada data yang tersedia"
+    } untuk target ${target.label}.`,
+    recommendations,
+  };
 }
 
-// ============================================================
-// PUBLIC API
-// ============================================================
-
-/**
- * Menganalisis komposisi gizi sebuah menu menggunakan Google Gemini AI.
- * Jika Gemini tidak tersedia atau gagal, akan fallback ke rule-based.
- *
- * @param {Object} nutrition - Data gizi { kalori, protein, lemak, karbohidrat, serat, gula }
- * @param {string} namaMenu  - Nama menu untuk konteks analisis
- * @param {Object} menuContext - Metadata opsional { kategori, deskripsi, menuType }
- * @returns {Promise<Object>} Hasil analisis lengkap
- */
 async function analyzeNutrition(nutrition, namaMenu, menuContext = {}) {
-  const nutritionProfile = detectNutritionProfile(namaMenu, menuContext);
-  const standarGizi = STANDAR_GIZI_PROFILES[nutritionProfile];
+  const targetKey = canonicalTargetKey(
+    menuContext.targetKey || menuContext.target || menuContext.kategori,
+  );
+  const mergedNutrition = buildNutrition(
+    nutrition,
+    menuContext.manualNutrients || menuContext.manual_macronutrients || [],
+  );
+  const {
+    analysis,
+    overallScore,
+    overallStatus,
+    nutrientIssues,
+    warnings,
+    target,
+  } = computeNutrientAnalysis(mergedNutrition, targetKey);
+  const macroDistribution = getMacroDistribution(analysis);
 
-  const { analysis, overallScore, overallStatus, nutrientIssues } =
-    computeNutrientAnalysis(nutrition, standarGizi);
-
-  let overallMessage = "";
-  let recommendations = [];
+  let aiOutput;
   let poweredBy = "Google Gemini AI";
   let aiEngine = "gemini-2.5-flash-lite";
 
   try {
-    const aiResult = await callGeminiAPI(
+    aiOutput = await callGeminiAPI([
       namaMenu,
-      nutrition,
+      target,
+      analysis,
       nutrientIssues,
       overallScore,
       overallStatus,
-      standarGizi,
-      nutritionProfile,
-    );
-    overallMessage = aiResult.message;
-    recommendations = aiResult.recommendations;
-    console.log(
-      `✅ [Gemini AI] Analisis selesai untuk menu: "${namaMenu}" | Skor: ${overallScore}/100`,
-    );
-    aiEngine = "gemini-2.5-flash-lite";
+      macroDistribution,
+      warnings,
+    ]);
   } catch (err) {
-    // Klasifikasi error untuk log yang lebih informatif
     const msg = err.message || "";
-    if (msg.includes("GEMINI_API_KEY belum dikonfigurasi")) {
-      console.warn(
-        "⚠️  [Gemini AI] API key belum diisi di .env. Menggunakan fallback rule-based.",
-      );
-    } else if (
-      msg.includes("429") ||
-      msg.toLowerCase().includes("quota") ||
-      msg.toLowerCase().includes("rate limit")
-    ) {
-      console.warn(
-        "⚠️  [Gemini AI] Kuota API habis (429 Too Many Requests). Menggunakan fallback rule-based.",
-      );
-    } else if (
-      msg.includes("403") ||
-      msg.toLowerCase().includes("permission") ||
-      msg.toLowerCase().includes("api key not valid")
-    ) {
-      console.warn(
-        "⚠️  [Gemini AI] API key tidak valid atau tidak punya akses (403). Periksa GEMINI_API_KEY di .env.",
-      );
-    } else if (msg.includes("404")) {
-      console.warn(
-        `⚠️  [Gemini AI] Model tidak ditemukan (404). Periksa nama model di konfigurasi.`,
-      );
-    } else if (
-      msg.toLowerCase().includes("fetch") ||
-      msg.toLowerCase().includes("network") ||
-      msg.toLowerCase().includes("enotfound")
-    ) {
-      console.warn(
-        "⚠️  [Gemini AI] Gagal terhubung ke Gemini API (network error). Menggunakan fallback rule-based.",
-      );
-    } else if (
-      msg.toLowerCase().includes("json") ||
-      msg.toLowerCase().includes("parse")
-    ) {
-      console.warn(
-        `⚠️  [Gemini AI] Respons tidak bisa di-parse sebagai JSON. Menggunakan fallback rule-based.`,
-      );
-    } else {
-      console.warn(
-        `⚠️  [Gemini AI] Gagal: ${msg}. Menggunakan fallback rule-based.`,
+    if (menuContext.requireGemini) {
+      throw new Error(
+        `Gemini API tidak tersedia untuk analisis dashboard: ${msg}`,
       );
     }
-
-    const fallback = getRuleBasedRecommendations(
+    console.warn(`[AI Nutrition] Gemini fallback: ${msg}`);
+    aiOutput = buildFallbackResult(
       namaMenu,
+      target,
       nutrientIssues,
-      overallScore,
-      overallStatus,
-      nutritionProfile,
+      analysis,
+      warnings,
     );
-    overallMessage = fallback.message;
-    recommendations = fallback.recommendations;
-    poweredBy = "Rule-Based Fallback";
-    aiEngine = "rule-based-fallback";
+    poweredBy = "Rule-Based Nutrition Reasoning";
+    aiEngine = "rule-based-nutrition-reasoning";
   }
 
   return {
     menu_nama: namaMenu,
     skor_gizi: overallScore,
     status: overallStatus,
-    pesan: overallMessage,
+    pesan: aiOutput.message,
+    catatan_ai: aiOutput.catatan,
+    tips_ai: aiOutput.tips,
+    kesimpulan_ai: aiOutput.kesimpulan,
     detail_analisis: analysis,
-    rekomendasi: recommendations,
-    standar_referensi: `AKG per porsi ${nutritionProfile} (Kemenkes RI) — Powered by ${poweredBy}`,
-    nutrition_profile: nutritionProfile,
+    rekomendasi: aiOutput.recommendations,
+    standar_referensi: `AKG 2019 target ${target.label} per porsi MBG - Powered by ${poweredBy}`,
+    target_key: targetKey,
+    target_label: target.label,
+    target_focus: target.focus,
+    macro_distribution: macroDistribution,
+    data_quality: {
+      is_complete: warnings.length === 0,
+      warnings,
+    },
     ai_engine: aiEngine,
     analyzed_at: new Date().toISOString(),
   };
 }
 
-/**
- * Menghasilkan ringkasan gizi singkat.
- * @param {Object} nutrition
- * @returns {Object}
- */
 function getNutritionSummary(nutrition) {
-  const profile = detectNutritionProfile("", {});
   return {
     kalori: Number(nutrition.kalori || 0),
     protein: Number(nutrition.protein || 0),
@@ -607,34 +740,19 @@ function getNutritionSummary(nutrition) {
     karbohidrat: Number(nutrition.karbohidrat || 0),
     serat: Number(nutrition.serat || 0),
     gula: Number(nutrition.gula || 0),
-    nutrition_profile: profile,
-    is_balanced: isBalanced(nutrition, profile),
+    is_balanced: isBalanced(nutrition),
   };
 }
 
-/**
- * Memeriksa apakah seluruh nilai gizi menu berada dalam standar.
- * @param {Object} nutrition
- * @param {string} nutritionProfile
- * @returns {boolean}
- */
-function isBalanced(nutrition, nutritionProfile = "makanan") {
-  const standarGizi =
-    STANDAR_GIZI_PROFILES[nutritionProfile] || STANDAR_GIZI_PROFILES.makanan;
-  for (const [nutrient, standard] of Object.entries(standarGizi)) {
-    const value = Number(nutrition[nutrient] || 0);
-    if (value < standard.min || value > standard.max) return false;
-  }
-  return true;
+function isBalanced(nutrition, targetKey = "siswa") {
+  const merged = buildNutrition(nutrition, []);
+  const { nutrientIssues, warnings } = computeNutrientAnalysis(
+    merged,
+    targetKey,
+  );
+  return nutrientIssues.length === 0 && warnings.length === 0;
 }
 
-/**
- * Generate menu suggestion dari bahan yang tersedia menggunakan Gemini AI.
- * @param {Array} ingredients - Array bahan tersedia [{nama, jumlah, satuan}]
- * @param {string} kelompok - 'porsi_kecil' | 'porsi_besar' (kompatibel dengan nilai lama: balita/siswa/ibu_hamil)
- * @param {string} kategori - 'Sarapan' | 'Makan Siang' | 'Makan Malam' | 'Snack'
- * @returns {Promise<Object>} Menu suggestion dengan estimasi gizi
- */
 async function generateMenuFromIngredients(
   ingredients,
   kelompok = "porsi_kecil",
@@ -644,36 +762,11 @@ async function generateMenuFromIngredients(
   const canUseGemini = apiKey && apiKey !== "your_gemini_api_key_here";
 
   const TARGET_GIZI = {
-    balita: {
-      kalori: "400-500",
-      protein: "15-20",
-      lemak: "12-18",
-      karbo: "55-70",
-    },
-    siswa: {
-      kalori: "550-650",
-      protein: "20-30",
-      lemak: "15-22",
-      karbo: "70-90",
-    },
-    ibu_hamil: {
-      kalori: "700-800",
-      protein: "25-35",
-      lemak: "20-28",
-      karbo: "80-100",
-    },
-    porsi_kecil: {
-      kalori: "400-520",
-      protein: "16-22",
-      lemak: "12-18",
-      karbo: "55-72",
-    },
-    porsi_besar: {
-      kalori: "700-850",
-      protein: "28-36",
-      lemak: "20-28",
-      karbo: "85-105",
-    },
+    balita: { kalori: "400-500", protein: "15-20", lemak: "12-18", karbo: "55-70" },
+    siswa: { kalori: "550-650", protein: "20-30", lemak: "15-22", karbo: "70-90" },
+    ibu_hamil: { kalori: "700-800", protein: "25-35", lemak: "20-28", karbo: "80-100" },
+    porsi_kecil: { kalori: "400-520", protein: "16-22", lemak: "12-18", karbo: "55-72" },
+    porsi_besar: { kalori: "700-850", protein: "28-36", lemak: "20-28", karbo: "85-105" },
   };
   const target = TARGET_GIZI[kelompok] || TARGET_GIZI.siswa;
 
@@ -681,12 +774,12 @@ async function generateMenuFromIngredients(
     .map((i) => `- ${i.nama} (${i.jumlah} ${i.satuan})`)
     .join("\n");
 
-  const prompt = `Kamu adalah ahli gizi program MBG (Makan Bergizi Gratis) Indonesia. Berdasarkan bahan yang tersedia, buat satu rekomendasi menu makanan sehat.
+  const prompt = `Kamu adalah ahli gizi program MBG Indonesia. Buat satu rekomendasi menu dari bahan tersedia.
 
-BAHAN TERSEDIA:
+BAHAN:
 ${ingList}
 
-TARGET GIZI untuk ${kelompok}:
+TARGET ${kelompok}:
 - Kalori: ${target.kalori} kkal
 - Protein: ${target.protein} g
 - Lemak: ${target.lemak} g
@@ -694,10 +787,10 @@ TARGET GIZI untuk ${kelompok}:
 
 Kategori: ${kategori}
 
-Buat respons dalam format JSON (tanpa markdown):
+Balas JSON valid:
 {
-  "nama_menu": "nama menu yang menarik",
-  "deskripsi": "deskripsi singkat cara memasak dan rasa",
+  "nama_menu": "nama menu",
+  "deskripsi": "deskripsi singkat",
   "metode_masak": "rebus/goreng/kukus/panggang",
   "estimasi_gizi": {
     "kalori": number,
@@ -713,15 +806,9 @@ Buat respons dalam format JSON (tanpa markdown):
   "bahan_kurang": [
     { "nama": "nama bahan", "jumlah_butuh": number, "satuan": "satuan", "alasan": "kenapa dibutuhkan" }
   ],
-  "tips_gizi": "satu kalimat tip gizi untuk kelompok sasaran",
-  "sesuai_target": true/false
-}
-
-Rules:
-- Jika ada bahan yang HAMPIR cukup atau dibutuhkan, masukkan ke "bahan_kurang"
-- Estimasi gizi berdasarkan jumlah bahan yang tersedia dan metode masak
-- Nama menu dalam bahasa Indonesia yang menarik
-- bahan_kurang kosong jika semua bahan mencukupi`;
+  "tips_gizi": "satu kalimat tip gizi",
+  "sesuai_target": true
+}`;
 
   if (canUseGemini) {
     const genAI = new GoogleGenerativeAI(apiKey);
@@ -731,8 +818,7 @@ Rules:
     });
 
     const result = await model.generateContent(prompt);
-    const text = result.response.text().trim();
-    const parsed = extractJsonFromText(text);
+    const parsed = extractJsonFromText(result.response.text().trim());
     return {
       ...parsed,
       kelompok,
@@ -782,18 +868,11 @@ Rules:
   };
 }
 
-// Penentu kategori porsi otomatis berdasarkan nilai gizi
-function getKategoriPorsi(nutrition) {
-  const kalori = Number(nutrition.kalori || 0);
-  if (kalori >= 800) return "Porsi Besar";
-  if (kalori > 0 && kalori <= 450) return "Porsi Kecil";
-  return null;
-}
-
 module.exports = {
   analyzeNutrition,
   getNutritionSummary,
   isBalanced,
   generateMenuFromIngredients,
   STANDAR_GIZI,
+  TARGET_AKG_2019,
 };

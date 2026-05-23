@@ -15,6 +15,31 @@ import { getCachedAnalysis, setCachedAnalysis } from "../utils/menuMeta";
 
 const API = "http://localhost:3002/api/menu";
 
+async function readJsonResponse<T>(res: Response, fallbackMessage: string) {
+  const text = await res.text();
+  let data: unknown = null;
+
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(
+        `${fallbackMessage}. Server mengirim respons non-JSON (${res.status}).`,
+      );
+    }
+  }
+
+  if (!res.ok) {
+    const message =
+      data && typeof data === "object" && "error" in data
+        ? String((data as { error: unknown }).error)
+        : fallbackMessage;
+    throw new Error(message);
+  }
+
+  return data as T;
+}
+
 interface AIAnalysisPanelProps {
   menuId: number;
   menuNama: string;
@@ -48,8 +73,10 @@ export default function AIAnalysisPanel({
     setError(null);
     try {
       const res = await fetch(`${API}/${menuId}/analyze`, { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Gagal menganalisis");
+      const data = await readJsonResponse<AIAnalysisResult>(
+        res,
+        "Gagal menganalisis",
+      );
       setAnalysis(data);
       setHasAnalyzed(true);
       setIsFromCache(false);

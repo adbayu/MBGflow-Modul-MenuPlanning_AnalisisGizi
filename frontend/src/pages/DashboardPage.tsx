@@ -13,6 +13,7 @@ import {
   HeartPulse,
   Info,
   Leaf,
+  ListFilter,
   Loader2,
   Milk,
   Plus,
@@ -61,6 +62,31 @@ const WEEKLY_PLAN_STORAGE_KEY = "mbg_weekly_plan_v1";
 const WEEKLY_PLAN_BY_LOCATION_STORAGE_KEY = "mbg_weekly_plan_by_location_v1";
 const SAVED_WEEKLY_LOCATION_STORAGE_KEY = "mbg_saved_weekly_location_v1";
 
+async function readJsonResponse<T>(res: Response, fallbackMessage: string) {
+  const text = await res.text();
+  let data: unknown = null;
+
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(
+        `${fallbackMessage}. Server mengirim respons non-JSON (${res.status}).`,
+      );
+    }
+  }
+
+  if (!res.ok) {
+    const message =
+      data && typeof data === "object" && "error" in data
+        ? String((data as { error: unknown }).error)
+        : fallbackMessage;
+    throw new Error(message);
+  }
+
+  return data as T;
+}
+
 type Kelompok =
   | "siswa"
   | "balita"
@@ -102,6 +128,82 @@ const STANDAR: Record<
   },
 };
 
+const AKG_MICRO_TARGETS: Record<
+  Kelompok,
+  Record<string, { label: string; target: number; unit: string; limitOnly?: boolean }>
+> = {
+  siswa: {
+    serat: { label: "Serat", target: 8, unit: "g" },
+    gula: { label: "Gula", target: 12, unit: "g", limitOnly: true },
+    "vitamin a": { label: "Vitamin A", target: 180, unit: "mcg" },
+    "vitamin c": { label: "Vitamin C", target: 18, unit: "mg" },
+    "vitamin d": { label: "Vitamin D", target: 4.5, unit: "mcg" },
+    kalsium: { label: "Kalsium", target: 300, unit: "mg" },
+    "zat besi": { label: "Zat Besi", target: 3, unit: "mg" },
+    zinc: { label: "Zinc", target: 2.5, unit: "mg" },
+    folat: { label: "Folat", target: 120, unit: "mcg" },
+    natrium: { label: "Natrium", target: 450, unit: "mg", limitOnly: true },
+    kalium: { label: "Kalium", target: 900, unit: "mg" },
+    "omega 3": { label: "Omega-3", target: 0.3, unit: "g" },
+  },
+  balita: {
+    serat: { label: "Serat", target: 5, unit: "g" },
+    gula: { label: "Gula", target: 8, unit: "g", limitOnly: true },
+    "vitamin a": { label: "Vitamin A", target: 120, unit: "mcg" },
+    "vitamin c": { label: "Vitamin C", target: 12, unit: "mg" },
+    "vitamin d": { label: "Vitamin D", target: 4.5, unit: "mcg" },
+    kalsium: { label: "Kalsium", target: 195, unit: "mg" },
+    "zat besi": { label: "Zat Besi", target: 2.1, unit: "mg" },
+    zinc: { label: "Zinc", target: 1.5, unit: "mg" },
+    folat: { label: "Folat", target: 48, unit: "mcg" },
+    natrium: { label: "Natrium", target: 240, unit: "mg", limitOnly: true },
+    kalium: { label: "Kalium", target: 780, unit: "mg" },
+    "omega 3": { label: "Omega-3", target: 0.21, unit: "g" },
+  },
+  ibu_hamil: {
+    serat: { label: "Serat", target: 10, unit: "g" },
+    gula: { label: "Gula", target: 15, unit: "g", limitOnly: true },
+    "vitamin a": { label: "Vitamin A", target: 255, unit: "mcg" },
+    "vitamin c": { label: "Vitamin C", target: 25.5, unit: "mg" },
+    "vitamin d": { label: "Vitamin D", target: 4.5, unit: "mcg" },
+    kalsium: { label: "Kalsium", target: 360, unit: "mg" },
+    "zat besi": { label: "Zat Besi", target: 8.1, unit: "mg" },
+    zinc: { label: "Zinc", target: 3.6, unit: "mg" },
+    folat: { label: "Folat", target: 180, unit: "mcg" },
+    natrium: { label: "Natrium", target: 450, unit: "mg", limitOnly: true },
+    kalium: { label: "Kalium", target: 1410, unit: "mg" },
+    "omega 3": { label: "Omega-3", target: 0.42, unit: "g" },
+  },
+  ibu_menyusui: {
+    serat: { label: "Serat", target: 11, unit: "g" },
+    gula: { label: "Gula", target: 15, unit: "g", limitOnly: true },
+    "vitamin a": { label: "Vitamin A", target: 255, unit: "mcg" },
+    "vitamin c": { label: "Vitamin C", target: 30, unit: "mg" },
+    "vitamin d": { label: "Vitamin D", target: 4.5, unit: "mcg" },
+    kalsium: { label: "Kalsium", target: 360, unit: "mg" },
+    "zat besi": { label: "Zat Besi", target: 5.4, unit: "mg" },
+    zinc: { label: "Zinc", target: 3.9, unit: "mg" },
+    folat: { label: "Folat", target: 150, unit: "mcg" },
+    natrium: { label: "Natrium", target: 450, unit: "mg", limitOnly: true },
+    kalium: { label: "Kalium", target: 1530, unit: "mg" },
+    "omega 3": { label: "Omega-3", target: 0.42, unit: "g" },
+  },
+  lansia: {
+    serat: { label: "Serat", target: 9, unit: "g" },
+    gula: { label: "Gula", target: 10, unit: "g", limitOnly: true },
+    "vitamin a": { label: "Vitamin A", target: 180, unit: "mcg" },
+    "vitamin c": { label: "Vitamin C", target: 22.5, unit: "mg" },
+    "vitamin d": { label: "Vitamin D", target: 6, unit: "mcg" },
+    kalsium: { label: "Kalsium", target: 360, unit: "mg" },
+    "zat besi": { label: "Zat Besi", target: 2.4, unit: "mg" },
+    zinc: { label: "Zinc", target: 3.3, unit: "mg" },
+    folat: { label: "Folat", target: 120, unit: "mcg" },
+    natrium: { label: "Natrium", target: 360, unit: "mg", limitOnly: true },
+    kalium: { label: "Kalium", target: 1410, unit: "mg" },
+    "omega 3": { label: "Omega-3", target: 0.33, unit: "g" },
+  },
+};
+
 const TARGET_TABS: Array<{ key: Kelompok; icon: typeof Users }> = [
   { key: "siswa", icon: Users },
   { key: "balita", icon: Baby },
@@ -140,17 +242,45 @@ const MANUAL_NUTRIENT_COLORS = [
 ];
 
 function normalizeNutrientName(name: string) {
-  return name.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  const key = name
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+  const aliases: Record<string, string> = {
+    "vit a": "vitamin a",
+    vitamina: "vitamin a",
+    "vit c": "vitamin c",
+    vitaminc: "vitamin c",
+    "vit d": "vitamin d",
+    vitamind: "vitamin d",
+    ca: "kalsium",
+    calcium: "kalsium",
+    fe: "zat besi",
+    iron: "zat besi",
+    besi: "zat besi",
+    seng: "zinc",
+    zn: "zinc",
+    folate: "folat",
+    sodium: "natrium",
+    potassium: "kalium",
+    omega3: "omega 3",
+    "omega-3": "omega 3",
+  };
+  return aliases[key] || key;
 }
 
-function toShortLabel(name: string) {
-  const compact = name.trim();
-  if (!compact) return "Nt";
-  const words = compact.split(/\s+/).filter(Boolean);
-  if (words.length >= 2) {
-    return `${words[0][0] || ""}${words[1][0] || ""}`.toUpperCase();
-  }
-  return compact.slice(0, 2).toUpperCase();
+function convertNutrientUnit(value: number, fromUnit: string, toUnit: string) {
+  const from = (fromUnit || toUnit).toLowerCase().replace("ug", "mcg");
+  const to = (toUnit || fromUnit).toLowerCase().replace("ug", "mcg");
+  if (!from || !to || from === to) return value;
+  if (from === "g" && to === "mg") return value * 1000;
+  if (from === "mg" && to === "g") return value / 1000;
+  if (from === "mg" && to === "mcg") return value * 1000;
+  if (from === "mcg" && to === "mg") return value / 1000;
+  if (from === "g" && to === "mcg") return value * 1000000;
+  if (from === "mcg" && to === "g") return value / 1000000;
+  return value;
 }
 
 function createEmptyDayPlan(): DayPlan {
@@ -226,6 +356,15 @@ function resolveMenuImageUrl(gambarUrl: string | null | undefined) {
     return gambarUrl;
   }
   return `${API_ORIGIN}${gambarUrl}`;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 function getPorsiBadgeClass(porsi: MenuPorsi) {
   return porsi === "porsi_besar"
@@ -425,7 +564,24 @@ interface SummaryWidget {
   watermarkColor: string;
 }
 
-const DISTRIBUTION_LOCATIONS = [
+interface DistributionLocation {
+  id: string;
+  type: "sekolah" | "posyandu";
+  recipients: Array<{ label: string; target: string }>;
+  image?: string;
+  image_key?: string;
+  name: string;
+  target: string;
+  schedule: string;
+  note: string;
+}
+
+const DISTRIBUTION_LOCATION_IMAGES: Record<string, string> = {
+  students: studentsImage,
+  pregnant: pregnantImage,
+};
+
+const DEFAULT_DISTRIBUTION_LOCATIONS: DistributionLocation[] = [
   {
     id: "sdn-01-sukamaju",
     type: "sekolah",
@@ -474,15 +630,21 @@ const DISTRIBUTION_LOCATIONS = [
   },
 ];
 
-function getLocationRecipientLabel(
-  location: (typeof DISTRIBUTION_LOCATIONS)[number],
-) {
+function withDistributionImage(location: DistributionLocation) {
+  return {
+    ...location,
+    image:
+      location.image ||
+      DISTRIBUTION_LOCATION_IMAGES[location.image_key || "students"] ||
+      studentsImage,
+  };
+}
+
+function getLocationRecipientLabel(location: DistributionLocation) {
   return location.recipients.map((recipient) => recipient.label).join(" & ");
 }
 
-function getLocationTargetLabel(
-  location: (typeof DISTRIBUTION_LOCATIONS)[number],
-) {
+function getLocationTargetLabel(location: DistributionLocation) {
   return location.recipients.map((recipient) => recipient.target).join(" + ");
 }
 
@@ -493,10 +655,16 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const [kelompok, setKelompok] = useState<Kelompok>("siswa");
   const [search, setSearch] = useState("");
   const [plateMenuSearch, setPlateMenuSearch] = useState("");
+  const [plateTargetFilter, setPlateTargetFilter] = useState<"all" | "target">(
+    "all",
+  );
   const [selectedMenuId, setSelectedMenuId] = useState<number | null>(null);
   const [plateMenuIds, setPlateMenuIds] = useState<number[]>([]);
+  const [distributionLocations, setDistributionLocations] = useState<
+    DistributionLocation[]
+  >(DEFAULT_DISTRIBUTION_LOCATIONS);
   const [activeLocationId, setActiveLocationId] = useState(
-    DISTRIBUTION_LOCATIONS[0].id,
+    DEFAULT_DISTRIBUTION_LOCATIONS[0].id,
   );
   const [weeklyPlanByLocation, setWeeklyPlanByLocation] =
     useState<WeeklyPlanByLocation>({});
@@ -521,23 +689,26 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const [showSaveScheduleConfirm, setShowSaveScheduleConfirm] = useState(false);
   const [showPlateMenuModal, setShowPlateMenuModal] = useState(false);
   const [holidayMap, setHolidayMap] = useState<HolidayMap>({});
+  const [weeklyStateLoaded, setWeeklyStateLoaded] = useState(false);
 
   const openDistributionModal = () => {
     setShowDistributionModal(true);
   };
 
   const activeLocation =
-    DISTRIBUTION_LOCATIONS.find(
+    distributionLocations.find(
       (location) => location.id === activeLocationId,
-    ) || DISTRIBUTION_LOCATIONS[0];
+    ) || distributionLocations[0] || DEFAULT_DISTRIBUTION_LOCATIONS[0];
   const weeklyPlan = weeklyPlanByLocation[activeLocationId] || {};
   const activeLocationRecipients = getLocationRecipientLabel(activeLocation);
   const activeLocationTargets = getLocationTargetLabel(activeLocation);
 
   useEffect(() => {
     Promise.all([
-      fetch(API).then((r) => r.json()),
-      fetch(`${API}/stats/summary`).then((r) => r.json()),
+      fetch(API).then((r) => readJsonResponse<Menu[]>(r, "Gagal memuat menu")),
+      fetch(`${API}/stats/summary`).then((r) =>
+        readJsonResponse<MenuStats>(r, "Gagal memuat statistik"),
+      ),
     ])
       .then(([m, s]: [unknown, unknown]) => {
         const list = Array.isArray(m) ? (m as Menu[]) : [];
@@ -576,6 +747,36 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   useEffect(() => {
     let active = true;
 
+    fetch(`${API}/distribution-locations`)
+      .then((res) =>
+        readJsonResponse<DistributionLocation[]>(
+          res,
+          "Gagal memuat lokasi distribusi",
+        ),
+      )
+      .then((locations) => {
+        if (!active || !Array.isArray(locations) || locations.length === 0) {
+          return;
+        }
+        setDistributionLocations(locations.map(withDistributionImage));
+        setActiveLocationId((prev) =>
+          locations.some((location) => location.id === prev)
+            ? prev
+            : locations[0].id,
+        );
+      })
+      .catch((error) => {
+        console.error("Gagal memuat lokasi distribusi:", error);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
     fetch(HOLIDAY_API)
       .then((r) => (r.ok ? r.json() : []))
       .then((data: unknown) => {
@@ -601,7 +802,12 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   }, []);
 
   useEffect(() => {
-    try {
+    const loadLocalWeeklyState = () => {
+      const result: {
+        plans: WeeklyPlanByLocation;
+        savedScheduleMap: SavedScheduleMap;
+      } = { plans: {}, savedScheduleMap: {} };
+
       const savedByLocation = localStorage.getItem(
         WEEKLY_PLAN_BY_LOCATION_STORAGE_KEY,
       );
@@ -612,7 +818,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       if (savedStatus) {
         const parsedStatus = JSON.parse(savedStatus);
         if (parsedStatus && typeof parsedStatus === "object") {
-          setSavedScheduleMap(parsedStatus as SavedScheduleMap);
+          result.savedScheduleMap = parsedStatus as SavedScheduleMap;
         }
       }
 
@@ -629,13 +835,13 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
               normalizedByLocation[locationId][dateKey] = normalizeDayPlan(day);
             });
           });
-          setWeeklyPlanByLocation(normalizedByLocation);
-          return;
+          result.plans = normalizedByLocation;
+          return result;
         }
       }
 
       const saved = localStorage.getItem(WEEKLY_PLAN_STORAGE_KEY);
-      if (!saved) return;
+      if (!saved) return result;
 
       const parsed = JSON.parse(saved) as Record<string, unknown>;
       if (parsed && typeof parsed === "object") {
@@ -643,28 +849,92 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         Object.entries(parsed).forEach(([dateKey, day]) => {
           normalized[dateKey] = normalizeDayPlan(day);
         });
-        setWeeklyPlanByLocation({
-          [DISTRIBUTION_LOCATIONS[0].id]: normalized,
-        });
+        result.plans = {
+          [DEFAULT_DISTRIBUTION_LOCATIONS[0].id]: normalized,
+        };
       }
-    } catch (error) {
-      console.error("Gagal memuat jadwal mingguan:", error);
-    }
+
+      return result;
+    };
+
+    const applyWeeklyState = (data: {
+      plans?: unknown;
+      savedScheduleMap?: unknown;
+    }) => {
+      const normalizedByLocation: WeeklyPlanByLocation = {};
+
+      if (data.plans && typeof data.plans === "object") {
+        Object.entries(data.plans as Record<string, Record<string, unknown>>)
+          .forEach(([locationId, plan]) => {
+            normalizedByLocation[locationId] = {};
+            Object.entries(plan || {}).forEach(([dateKey, day]) => {
+              normalizedByLocation[locationId][dateKey] = normalizeDayPlan(day);
+            });
+          });
+      }
+
+      setWeeklyPlanByLocation(normalizedByLocation);
+      setSavedScheduleMap(
+        data.savedScheduleMap && typeof data.savedScheduleMap === "object"
+          ? (data.savedScheduleMap as SavedScheduleMap)
+          : {},
+      );
+    };
+
+    fetch(`${API}/weekly-plans`)
+      .then((res) =>
+        readJsonResponse<{
+          plans: WeeklyPlanByLocation;
+          savedScheduleMap: SavedScheduleMap;
+        }>(res, "Gagal memuat jadwal mingguan"),
+      )
+      .then((data) => {
+        applyWeeklyState(data);
+      })
+      .catch((error) => {
+        console.error("Gagal memuat jadwal dari database:", error);
+        try {
+          applyWeeklyState(loadLocalWeeklyState());
+        } catch (localError) {
+          console.error("Gagal memuat jadwal lokal:", localError);
+        }
+      })
+      .finally(() => {
+        setWeeklyStateLoaded(true);
+      });
   }, []);
 
   useEffect(() => {
+    if (!weeklyStateLoaded) return;
+
     localStorage.setItem(
       WEEKLY_PLAN_BY_LOCATION_STORAGE_KEY,
       JSON.stringify(weeklyPlanByLocation),
     );
-  }, [weeklyPlanByLocation]);
-
-  useEffect(() => {
     localStorage.setItem(
       SAVED_WEEKLY_LOCATION_STORAGE_KEY,
       JSON.stringify(savedScheduleMap),
     );
-  }, [savedScheduleMap]);
+
+    const timeoutId = window.setTimeout(() => {
+      fetch(`${API}/weekly-plans`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          plans: weeklyPlanByLocation,
+          savedScheduleMap,
+        }),
+      })
+        .then((res) =>
+          readJsonResponse(res, "Gagal menyimpan jadwal mingguan"),
+        )
+        .catch((error) => {
+          console.error("Gagal menyimpan jadwal ke database:", error);
+        });
+    }, 400);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [savedScheduleMap, weeklyPlanByLocation, weeklyStateLoaded]);
 
   const weekDays = useMemo(() => getCurrentWeekDays(new Date()), []);
   const weekPeriod =
@@ -719,12 +989,15 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       body: JSON.stringify({
         menuIds: plateMenuIds,
         target: STANDAR[kelompok].label,
+        targetKey: kelompok,
       }),
       signal: controller.signal,
     })
       .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Analisis AI gagal");
+        const data = await readJsonResponse<AIAnalysisResult>(
+          res,
+          "Analisis AI gagal",
+        );
         setPlateAiAnalysis(data as AIAnalysisResult);
       })
       .catch((err: unknown) => {
@@ -814,11 +1087,11 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       string,
       {
         key: string;
-        abbr: string;
         label: string;
         unit: string;
         color: string;
         value: number;
+        target: number | null;
         percent: number;
         statusLabel: string;
         statusClass: string;
@@ -826,8 +1099,44 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     > = {};
 
     let paletteIndex = 0;
+    const targets = AKG_MICRO_TARGETS[kelompok];
+
+    const ensureField = (name: string, unit: string) => {
+      const normalized = normalizeNutrientName(name || "");
+      if (!normalized) return null;
+      const target = targets[normalized];
+
+      if (!dynamicMap[normalized]) {
+        const color =
+          MANUAL_NUTRIENT_COLORS[paletteIndex % MANUAL_NUTRIENT_COLORS.length];
+        paletteIndex += 1;
+
+        dynamicMap[normalized] = {
+          key: `manual-${normalized.replace(/\s+/g, "-")}`,
+          label: target?.label || name || "Nutrien Tambahan",
+          unit: target?.unit || unit || "g",
+          color,
+          value: 0,
+          target: target?.target || null,
+          percent: 0,
+          statusLabel: "Tercatat",
+          statusClass: "text-emerald-600",
+        };
+      }
+
+      return dynamicMap[normalized];
+    };
 
     piringkuMenus.forEach((menu) => {
+      [
+        { name: "Serat", value: Number(menu.serat || 0), unit: "g" },
+        { name: "Gula", value: Number(menu.gula || 0), unit: "g" },
+      ].forEach((item) => {
+        if (item.value <= 0) return;
+        const field = ensureField(item.name, item.unit);
+        if (field) field.value += item.value;
+      });
+
       const manualList =
         plateManualMacrosMap[menu.id] || menu.manual_macronutrients || [];
 
@@ -838,38 +1147,19 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         const numericValue = Number(macro.nilai || 0);
         if (!Number.isFinite(numericValue)) return;
 
-        if (!dynamicMap[normalized]) {
-          const color =
-            MANUAL_NUTRIENT_COLORS[
-              paletteIndex % MANUAL_NUTRIENT_COLORS.length
-            ];
-          paletteIndex += 1;
-
-          dynamicMap[normalized] = {
-            key: `manual-${normalized.replace(/\s+/g, "-")}`,
-            abbr: toShortLabel(macro.nama || "Nutrien"),
-            label: macro.nama || "Nutrien Tambahan",
-            unit: macro.satuan || "g",
-            color,
-            value: 0,
-            percent: 0,
-            statusLabel: "Baik",
-            statusClass: "text-emerald-600",
-          };
-        }
-
-        dynamicMap[normalized].value += numericValue;
+        const field = ensureField(macro.nama || "Nutrien", macro.satuan || "g");
+        if (!field) return;
+        field.value += convertNutrientUnit(
+          numericValue,
+          macro.satuan || field.unit,
+          field.unit,
+        );
       });
     });
 
     const dynamicFields = Object.values(dynamicMap);
-    const maxValue = dynamicFields.reduce(
-      (max, item) => Math.max(max, item.value),
-      0,
-    );
-
     return dynamicFields.map((item) => {
-      if (item.value <= 0 || maxValue <= 0) {
+      if (item.value <= 0) {
         return {
           ...item,
           percent: 0,
@@ -878,33 +1168,26 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         };
       }
 
-      const ratio = item.value / maxValue;
-      if (ratio >= 0.8) {
+      if (!item.target) {
         return {
           ...item,
-          percent: Math.round(ratio * 100),
-          statusLabel: "Baik",
+          percent: 100,
+          statusLabel: "Tercatat",
           statusClass: "text-emerald-600",
         };
       }
 
-      if (ratio >= 0.5) {
-        return {
-          ...item,
-          percent: Math.round(ratio * 100),
-          statusLabel: "Cukup",
-          statusClass: "text-emerald-600",
-        };
-      }
+      const percent = Math.round((item.value / item.target) * 100);
+      const status = getAkgStatus(percent);
 
       return {
         ...item,
-        percent: Math.round(ratio * 100),
-        statusLabel: "Kurang",
-        statusClass: "text-emerald-400",
+        percent,
+        statusLabel: status.label,
+        statusClass: status.textClass,
       };
     });
-  }, [piringkuMenus, plateManualMacrosMap]);
+  }, [kelompok, piringkuMenus, plateManualMacrosMap]);
 
   const std = STANDAR[kelompok];
   const rows = [
@@ -942,6 +1225,57 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   });
 
   const visibleRows = rows.filter((row) => row.val > 0);
+  const analysisRows =
+    plateAiAnalysis && Object.keys(plateAiAnalysis.detail_analisis).length > 0
+      ? Object.entries(plateAiAnalysis.detail_analisis)
+          .map(([key, data]) => ({
+            key,
+            label: data.label,
+            val: Number(data.value || 0),
+            target: data.target ?? null,
+            unit: data.unit,
+            percent:
+              typeof data.percent === "number"
+                ? data.percent
+                : data.target
+                  ? Math.round((Number(data.value || 0) / data.target) * 100)
+                  : null,
+            status:
+              typeof data.percent === "number"
+                ? getAkgStatus(data.percent)
+                : data.target
+                  ? getAkgStatus(
+                      Math.round((Number(data.value || 0) / data.target) * 100),
+                    )
+                  : null,
+            statusLabel: data.status,
+            category: data.category || "micro",
+          }))
+          .filter((row) => row.val > 0)
+          .sort((a, b) => {
+            const order = [
+              "kalori",
+              "protein",
+              "karbohidrat",
+              "lemak",
+              "serat",
+              "gula",
+            ];
+            const ai = order.indexOf(a.key);
+            const bi = order.indexOf(b.key);
+            return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+          })
+      : visibleRows.map((row) => ({
+          key: row.label.toLowerCase(),
+          label: row.label,
+          val: row.val,
+          target: row.target,
+          unit: row.unit,
+          percent: row.percent,
+          status: row.status,
+          statusLabel: row.status.label,
+          category: "macro",
+        }));
   const aggregateScores = [
     ...visibleRows.map((row) => Math.min(130, Math.max(0, row.percent))),
     ...microStatus.map((item) => item.percent),
@@ -980,13 +1314,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     },
   ].filter((slice) => slice.value > 0);
 
-  const aiWarnings =
-    plateAiAnalysis?.rekomendasi.filter((rec) => rec.severity !== "success") ||
-    [];
-  const aiSuccess =
-    plateAiAnalysis?.rekomendasi.find((rec) => rec.severity === "success") ||
-    null;
-  const aiTips = aiWarnings.length > 0 ? aiWarnings : plateAiAnalysis?.rekomendasi || [];
+  const dataWarnings = plateAiAnalysis?.data_quality?.warnings || [];
   const retryPlateAi = () => setPlateMenuIds((prev) => [...prev]);
 
   const addMenu = (id: number) =>
@@ -1081,16 +1409,19 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
 
   const plateMenuOptions = useMemo(() => {
     const q = plateMenuSearch.trim().toLowerCase();
-    if (!q) return menus;
     return menus.filter((menu) => {
       const cleanName = sanitizeMenuName(menu.nama).toLowerCase();
-      return (
+      const matchesSearch =
+        !q ||
         cleanName.includes(q) ||
         menu.nama.toLowerCase().includes(q) ||
-        menu.kategori.toLowerCase().includes(q)
-      );
+        menu.kategori.toLowerCase().includes(q);
+      const matchesTarget =
+        plateTargetFilter === "all" ||
+        menu.kategori.toLowerCase() === STANDAR[kelompok].label.toLowerCase();
+      return matchesSearch && matchesTarget;
     });
-  }, [menus, plateMenuSearch]);
+  }, [kelompok, menus, plateMenuSearch, plateTargetFilter]);
 
   const today = new Date().toLocaleDateString("id-ID", {
     weekday: "long",
@@ -1110,7 +1441,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     if (!stats) return [];
 
     const totalMenus = Number(stats.total_menus || 0);
-    const locationCount = DISTRIBUTION_LOCATIONS.length;
+    const locationCount = distributionLocations.length;
     const savedLocationCount = Object.keys(savedScheduleMap).length;
 
     return [
@@ -1165,6 +1496,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     activeLocationRecipients,
     activeLocationSaved,
     activeLocationTargets,
+    distributionLocations.length,
     savedScheduleMap,
     stats,
   ]);
@@ -1192,15 +1524,55 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
 
     const source = e.currentTarget;
     const rect = source.getBoundingClientRect();
-    const ghost = source.cloneNode(true) as HTMLDivElement;
+    const menu = menuLookup.get(menuId);
+    const ghost = document.createElement("div");
+    const imageUrl = resolveMenuImageUrl(menu?.gambar_url);
+    const displayName = escapeHtml(
+      sanitizeMenuName(menu?.nama || "") || menu?.nama || "",
+    );
+    const menuCategory = escapeHtml(menu?.kategori || "Menu");
+
+    ghost.innerHTML = `
+      <div style="display:flex;gap:12px;align-items:stretch;width:100%;">
+        <div style="width:96px;min-width:96px;height:96px;border-radius:14px;overflow:hidden;background:#f3f4f6;">
+          ${
+            imageUrl
+              ? `<img src="${escapeHtml(imageUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;" />`
+              : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-weight:800;">MENU</div>`
+          }
+        </div>
+        <div style="min-width:0;flex:1;padding:2px 0;">
+          <div style="font-size:14px;font-weight:800;color:#243127;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${displayName}</div>
+          <div style="margin-top:6px;font-size:11px;color:#647066;">${menuCategory} - ${menu?.kalori ?? 0} kkal</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px;">
+            ${[
+              ["P", menu?.protein ?? 0, "#10b981"],
+              ["K", menu?.karbohidrat ?? 0, "#8b5cf6"],
+              ["L", menu?.lemak ?? 0, "#f59e0b"],
+            ]
+              .map(
+                ([label, value, color]) =>
+                  `<div style="border:1px solid #dfeee4;border-radius:10px;padding:6px;background:#f7fbf8;">
+                    <div style="font-size:9px;font-weight:800;color:${color};">${label}</div>
+                    <div style="font-size:12px;font-weight:800;color:#243127;">${value}g</div>
+                  </div>`,
+              )
+              .join("")}
+          </div>
+        </div>
+      </div>
+    `;
     ghost.style.position = "fixed";
     ghost.style.top = "-9999px";
     ghost.style.left = "-9999px";
-    ghost.style.width = `${rect.width}px`;
-    ghost.style.maxWidth = `${rect.width}px`;
-    ghost.style.opacity = "0.9";
+    ghost.style.width = `${Math.max(300, Math.min(380, rect.width + 54))}px`;
+    ghost.style.maxWidth = "380px";
+    ghost.style.padding = "10px";
+    ghost.style.background = "white";
+    ghost.style.border = "1px solid rgba(34, 197, 94, 0.28)";
+    ghost.style.opacity = "0.97";
     ghost.style.transform = "rotate(-2deg) scale(0.98)";
-    ghost.style.borderRadius = "14px";
+    ghost.style.borderRadius = "18px";
     ghost.style.boxShadow = "0 24px 38px rgba(15, 23, 42, 0.32)";
     ghost.style.pointerEvents = "none";
     ghost.style.zIndex = "9999";
@@ -1788,15 +2160,15 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                       <Scale className="h-5 w-5 text-forest-800" />
                     </div>
 
-                    {visibleRows.length === 0 ? (
+                    {analysisRows.length === 0 ? (
                       <div className="rounded-[22px] border border-dashed border-ink-100 bg-gray-50 p-5 text-sm text-ink-400">
                         Belum ada data nutrisi untuk dibandingkan.
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        {visibleRows.map((row) => (
+                        {analysisRows.map((row) => (
                           <div
-                            key={row.label}
+                            key={row.key}
                             className="grid grid-cols-1 gap-3 rounded-[22px] border border-ink-100 bg-white px-4 py-4 shadow-sm md:grid-cols-[1.2fr_0.8fr_0.8fr_0.7fr_auto] md:items-center"
                           >
                             <div className="flex items-center gap-3">
@@ -1819,15 +2191,18 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                               {Math.round(row.val)} {row.unit}
                             </p>
                             <p className="text-sm text-ink-500">
-                              {row.target} {row.unit}
+                              {row.target ? `${row.target} ${row.unit}` : "-"}
                             </p>
                             <p className="text-sm font-black text-ink-700">
-                              {row.percent}%
+                              {row.percent !== null ? `${row.percent}%` : "-"}
                             </p>
                             <span
-                              className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${row.status.badgeClass}`}
+                              className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${
+                                row.status?.badgeClass ||
+                                "border border-forest-100 bg-forest-50 text-forest-800"
+                              }`}
                             >
-                              {row.status.label}
+                              {row.statusLabel}
                             </span>
                           </div>
                         ))}
@@ -1877,10 +2252,6 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                           {microStatus.map((field) => {
                             const shownValue =
                               Math.round(field.value * 10) / 10;
-                            const percent =
-                              microTotal > 0
-                                ? Math.round((field.value / microTotal) * 100)
-                                : 0;
 
                             return (
                               <div
@@ -1906,12 +2277,15 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                                       </p>
                                       <p className="text-xs text-ink-400">
                                         {shownValue} {field.unit}
+                                        {field.target
+                                          ? ` / ${field.target} ${field.unit}`
+                                          : ""}
                                       </p>
                                     </div>
                                   </div>
                                   <div className="text-right">
                                     <p className="text-sm font-black text-ink-700">
-                                      {percent}%
+                                      {field.percent}%
                                     </p>
                                     <p
                                       className={`text-[11px] font-bold ${field.statusClass}`}
@@ -1929,13 +2303,45 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                   </div>
                 </div>
 
+                {dataWarnings.length > 0 && (
+                  <div className="rounded-[26px] border border-amber-100 bg-amber-50 p-4">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                      <div>
+                        <p className="text-sm font-bold text-amber-900">
+                          Data belum lengkap
+                        </p>
+                        <div className="mt-1 space-y-1">
+                          {dataWarnings.map((warning) => (
+                            <p
+                              key={warning}
+                              className="text-sm leading-6 text-amber-800"
+                            >
+                              {warning}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
                   {plateAiLoading ? (
-                    [0, 1, 2].map((item) => (
+                    [
+                      "AI sedang menganalisis komposisi menu...",
+                      "Menyusun catatan ahli gizi...",
+                      "Menghasilkan tips dan kesimpulan...",
+                    ].map((text) => (
                       <div
-                        key={item}
-                        className="nutrition-shimmer h-44 rounded-[30px] border border-ink-100 bg-white"
-                      />
+                        key={text}
+                        className="flex min-h-44 flex-col items-center justify-center rounded-[30px] border border-forest-100 bg-white p-6 text-center shadow-sm"
+                      >
+                        <Loader2 className="h-7 w-7 animate-spin text-forest-800" />
+                        <p className="mt-4 text-sm font-bold leading-6 text-ink-700">
+                          {text}
+                        </p>
+                      </div>
                     ))
                   ) : plateAiError ? (
                     <div className="xl:col-span-3 rounded-[30px] border border-red-100 bg-red-50 p-5">
@@ -1944,7 +2350,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                           <AlertTriangle className="mt-0.5 h-5 w-5 text-red-600" />
                           <div>
                             <p className="text-sm font-bold text-red-800">
-                              Gemini API gagal memproses analisis
+                              Gemini API wajib untuk analisis dashboard
                             </p>
                             <p className="mt-1 text-sm text-red-700">
                               {plateAiError}
@@ -1977,9 +2383,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                           </div>
                         </div>
                         <p className="text-sm leading-7 text-violet-950/80">
-                          {aiWarnings[0]?.pesan ||
-                            aiSuccess?.pesan ||
-                            plateAiAnalysis.pesan}
+                          {plateAiAnalysis.catatan_ai}
                         </p>
                       </div>
 
@@ -1998,7 +2402,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                           </div>
                         </div>
                         <p className="text-sm leading-7 text-amber-950/80">
-                          {aiTips[0]?.detail || aiTips[0]?.pesan || plateAiAnalysis.pesan}
+                          {plateAiAnalysis.tips_ai}
                         </p>
                       </div>
 
@@ -2017,7 +2421,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                           </div>
                         </div>
                         <p className="text-sm leading-7 text-forest-950/80">
-                          {plateAiAnalysis.pesan}
+                          {plateAiAnalysis.kesimpulan_ai}
                         </p>
                       </div>
                     </>
@@ -2352,39 +2756,72 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                             return (
                               <div
                                 key={`${day.dateKey}-menu-${menu.id}`}
-                                className="rounded-[14px] border border-gray-200 bg-white p-2 shadow-sm transition hover:-translate-y-0.5 hover:border-forest-200 hover:shadow-md"
+                                className="overflow-hidden rounded-[16px] border border-gray-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-forest-200 hover:shadow-md"
                               >
-                                <div className="mb-1 flex items-center gap-1.5">
+                                <div className="flex gap-2 p-2">
                                   {thumbUrl ? (
                                     <img
                                       src={thumbUrl}
                                       alt={displayName}
-                                      className="h-6 w-6 rounded object-cover"
+                                      className="h-14 w-16 shrink-0 rounded-xl object-cover"
                                     />
                                   ) : (
-                                    <span className="flex h-6 w-6 items-center justify-center rounded bg-gray-100 text-gray-400">
-                                      <ChefHat className="h-3.5 w-3.5" />
+                                    <span className="flex h-14 w-16 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-400">
+                                      <ChefHat className="h-5 w-5" />
                                     </span>
                                   )}
-                                  <p className="truncate text-[10px] font-semibold text-gray-700">
-                                    {displayName}
-                                  </p>
-                                </div>
-
-                                <div className="flex items-center justify-between gap-1">
-                                  <span className="text-[9px] font-semibold text-gray-400">
-                                    {menu.kalori ?? 0} kkal
-                                  </span>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      removeMenuFromDay(day.dateKey, menu.id);
-                                    }}
-                                    className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                                    title="Hapus dari jadwal"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-start justify-between gap-1">
+                                      <p className="line-clamp-2 text-[10px] font-bold leading-4 text-gray-700">
+                                        {displayName}
+                                      </p>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          removeMenuFromDay(
+                                            day.dateKey,
+                                            menu.id,
+                                          );
+                                        }}
+                                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                        title="Hapus dari jadwal"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                    <p className="mt-1 text-[9px] font-semibold text-gray-400">
+                                      {menu.kalori ?? 0} kkal
+                                    </p>
+                                    <div className="mt-1.5 grid grid-cols-3 gap-1">
+                                      {[
+                                        {
+                                          label: "P",
+                                          value: menu.protein ?? 0,
+                                          color: "text-emerald-700",
+                                        },
+                                        {
+                                          label: "K",
+                                          value: menu.karbohidrat ?? 0,
+                                          color: "text-violet-700",
+                                        },
+                                        {
+                                          label: "L",
+                                          value: menu.lemak ?? 0,
+                                          color: "text-amber-700",
+                                        },
+                                      ].map((item) => (
+                                        <span
+                                          key={item.label}
+                                          className="rounded-lg bg-emerald-50 px-1 py-1 text-center text-[8px] font-bold text-gray-500"
+                                        >
+                                          <span className={item.color}>
+                                            {item.label}
+                                          </span>{" "}
+                                          {item.value}g
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
                             );
@@ -2563,9 +3000,9 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       </div>
 
       {showPlateMenuModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
-          <div className="flex max-h-[86vh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] bg-white shadow-xl">
-            <div className="border-b border-gray-100 px-5 py-4">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-3 backdrop-blur-sm sm:p-5">
+          <div className="flex h-[min(90vh,780px)] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl">
+            <div className="sticky top-0 z-10 border-b border-gray-100 bg-white px-5 py-4 shadow-sm">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-forest-700/80">
@@ -2586,19 +3023,54 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <div className="relative mt-4">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <input
-                  value={plateMenuSearch}
-                  onChange={(e) => setPlateMenuSearch(e.target.value)}
-                  placeholder="Cari nama menu atau kategori"
-                  className="w-full py-3 pl-11 pr-4 text-sm"
-                />
+              <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto]">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input
+                    value={plateMenuSearch}
+                    onChange={(e) => setPlateMenuSearch(e.target.value)}
+                    placeholder="Cari nama menu atau kategori"
+                    className="w-full py-3 pl-11 pr-4 text-sm"
+                  />
+                </div>
+                <div className="flex items-center gap-2 rounded-[18px] border border-ink-100 bg-forest-50/70 p-1">
+                  <ListFilter className="ml-2 h-4 w-4 text-forest-800" />
+                  {[
+                    { key: "all", label: "Semua" },
+                    { key: "target", label: STANDAR[kelompok].label },
+                  ].map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() =>
+                        setPlateTargetFilter(item.key as "all" | "target")
+                      }
+                      data-active={plateTargetFilter === item.key}
+                      className="rounded-[14px] px-3 py-2 text-xs font-bold text-forest-700 transition data-[active=true]:bg-white data-[active=true]:text-forest-950 data-[active=true]:shadow-sm"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="grid gap-3 overflow-y-auto p-5 sm:grid-cols-2">
-              {plateMenuOptions.map((menu) => {
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+              {plateMenuOptions.length === 0 ? (
+                <div className="grid min-h-72 place-items-center rounded-[24px] border border-dashed border-forest-200 bg-forest-50/60 p-6 text-center">
+                  <div>
+                    <ChefHat className="mx-auto h-10 w-10 text-forest-800" />
+                    <p className="mt-3 text-sm font-bold text-ink-700">
+                      Menu tidak ditemukan
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-ink-400">
+                      Ubah kata kunci atau filter target.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4">
+                  {plateMenuOptions.map((menu) => {
                 const imageUrl = resolveMenuImageUrl(menu.gambar_url);
                 const displayName = sanitizeMenuName(menu.nama) || menu.nama;
                 const isSelected = selectedMenuId === menu.id;
@@ -2610,13 +3082,13 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                       setSelectedMenuId(menu.id);
                       setShowPlateMenuModal(false);
                     }}
-                    className={`overflow-hidden rounded-[24px] border bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:border-forest-200 hover:shadow-md ${
+                    className={`min-h-[310px] overflow-hidden rounded-[24px] border bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:border-forest-200 hover:shadow-md ${
                       isSelected
                         ? "border-forest-400 ring-2 ring-forest-100"
                         : "border-gray-100"
                     }`}
                   >
-                    <div className="relative h-32 overflow-hidden">
+                    <div className="relative h-36 overflow-hidden">
                       {imageUrl ? (
                         <img
                           src={imageUrl}
@@ -2636,6 +3108,9 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                     <div className="p-4">
                       <p className="truncate text-sm font-bold text-gray-800">
                         {displayName}
+                      </p>
+                      <p className="mt-1 line-clamp-2 min-h-10 text-xs leading-5 text-gray-500">
+                        {menu.deskripsi || "Komposisi menu MBG siap dianalisis."}
                       </p>
                       <div className="mt-3 grid grid-cols-4 gap-2 text-[11px]">
                         {[
@@ -2668,7 +3143,9 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                     </div>
                   </button>
                 );
-              })}
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -2705,7 +3182,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                   Lokasi
                 </p>
                 <p className="mt-1 text-lg font-black text-forest-900">
-                  {DISTRIBUTION_LOCATIONS.length}
+                  {distributionLocations.length}
                 </p>
               </div>
               <div className="rounded-[20px] border border-forest-100 bg-white px-4 py-3">
@@ -2714,7 +3191,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                 </p>
                 <p className="mt-1 text-lg font-black text-forest-900">
                   {
-                    DISTRIBUTION_LOCATIONS.filter(
+                    distributionLocations.filter(
                       (location) => location.type === "sekolah",
                     ).length
                   }
@@ -2731,7 +3208,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
             </div>
 
             <div className="grid max-h-[58vh] grid-cols-1 gap-3 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-3">
-              {DISTRIBUTION_LOCATIONS.map((location) => {
+              {distributionLocations.map((location) => {
                 const isSelected = location.id === activeLocationId;
                 const isScheduled = Boolean(savedScheduleMap[location.id]);
 

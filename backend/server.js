@@ -25,6 +25,15 @@ app.get("/health", (req, res) => {
   res.json({ status: "OK", module: "Menu Planning & Analisis Gizi" });
 });
 
+app.use("/api", (req, res) => {
+  res.status(404).json({ error: "Endpoint API tidak ditemukan" });
+});
+
+app.use((err, _req, res, _next) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ error: err.message || "Terjadi kesalahan server" });
+});
+
 // Setup DB connection listener
 const db = require("./db");
 db.getConnection()
