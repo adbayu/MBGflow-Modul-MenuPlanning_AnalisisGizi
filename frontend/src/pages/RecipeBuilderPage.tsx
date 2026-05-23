@@ -4,6 +4,7 @@ import {
   useState,
   type ChangeEvent,
   type FormEvent,
+  type ReactNode,
 } from "react";
 import { motion } from "framer-motion";
 import {
@@ -30,6 +31,13 @@ import type {
   MenuNutrition,
   PageView,
 } from "../types";
+import {
+  CalorieIcon,
+  CarboIcon,
+  FatIcon,
+  NutrientAssetIcon,
+  ProteinIcon,
+} from "../components/icons/NutrientIcons";
 import {
   appendMenuEditLogs,
   clearEditTargetMenuId,
@@ -96,14 +104,35 @@ interface ManualMacroFormRow extends ManualMacronutrient {
 }
 
 const MANUAL_MACRO_OPTIONS = [
+  { nama: "Serat", satuan: "g", note: "Bantu pencernaan dan rasa kenyang lebih lama." },
+  { nama: "Gula", satuan: "g", note: "Pantau gula sederhana agar menu tidak berlebih." },
   { nama: "Omega-3", satuan: "g", note: "Lemak sehat dari ikan, telur, atau biji-bijian." },
+  { nama: "Omega-6", satuan: "g", note: "Asam lemak esensial dari minyak nabati dan kacang." },
+  { nama: "Omega-9", satuan: "g", note: "Lemak tak jenuh tunggal untuk variasi lemak sehat." },
+  { nama: "Lemak Jenuh", satuan: "g", note: "Perlu dipantau agar tidak terlalu tinggi." },
+  { nama: "Lemak Tak Jenuh", satuan: "g", note: "Lemak sehat dari ikan, alpukat, kacang, dan biji." },
   { nama: "Zat Besi", satuan: "mg", note: "Penting untuk ibu hamil dan pencegahan anemia." },
   { nama: "Kalsium", satuan: "mg", note: "Dukung tulang dan pertumbuhan anak." },
-  { nama: "Vitamin A", satuan: "mcg", note: "Baik untuk imunitas dan kesehatan mata." },
-  { nama: "Vitamin C", satuan: "mg", note: "Bantu penyerapan zat besi dan daya tahan." },
+  { nama: "Zinc", satuan: "mg", note: "Mendukung imunitas dan pertumbuhan." },
+  { nama: "Magnesium", satuan: "mg", note: "Mendukung fungsi otot, saraf, dan metabolisme." },
+  { nama: "Kalium", satuan: "mg", note: "Membantu keseimbangan cairan dan fungsi otot." },
+  { nama: "Fosfor", satuan: "mg", note: "Berperan dalam kesehatan tulang dan energi sel." },
   { nama: "Natrium", satuan: "mg", note: "Pantau agar rasa tetap aman dan tidak berlebih." },
+  { nama: "Iodium", satuan: "mcg", note: "Penting untuk fungsi tiroid dan tumbuh kembang." },
+  { nama: "Vitamin A", satuan: "mcg", note: "Baik untuk imunitas dan kesehatan mata." },
+  { nama: "Vitamin B1", satuan: "mg", note: "Membantu metabolisme energi." },
+  { nama: "Vitamin B2", satuan: "mg", note: "Mendukung metabolisme dan kesehatan jaringan." },
+  { nama: "Vitamin B3", satuan: "mg", note: "Berperan dalam metabolisme karbohidrat dan lemak." },
+  { nama: "Vitamin C", satuan: "mg", note: "Bantu penyerapan zat besi dan daya tahan." },
+  { nama: "Vitamin D", satuan: "mcg", note: "Membantu penyerapan kalsium." },
+  { nama: "Vitamin E", satuan: "mg", note: "Antioksidan untuk melindungi sel." },
+  { nama: "Vitamin K", satuan: "mcg", note: "Mendukung pembekuan darah dan kesehatan tulang." },
   { nama: "Kolesterol", satuan: "mg", note: "Berguna untuk menu tinggi lauk hewani." },
   { nama: "Folat", satuan: "mcg", note: "Relevan untuk ibu hamil dan sayuran hijau." },
+  { nama: "Air", satuan: "ml", note: "Catat komponen cairan bila menu berupa minuman atau sup." },
+  { nama: "Antioksidan", satuan: "mg", note: "Umumnya berasal dari buah dan sayuran berwarna." },
+  { nama: "Fitonutrien", satuan: "mg", note: "Senyawa tanaman dari sayur, buah, dan rempah." },
+  { nama: "Probiotik", satuan: "cfu", note: "Bakteri baik dari yoghurt atau pangan fermentasi." },
 ];
 
 const emptyIng: MenuIngredient = {
@@ -1041,17 +1070,58 @@ export default function RecipeBuilderPage({
               <div className="grid grid-cols-3 gap-3">
                 {(
                   [
-                    { key: "kalori" as const, label: "Calories (kcal)" },
-                    { key: "protein" as const, label: "Protein (g)" },
-                    { key: "lemak" as const, label: "Fat (g)" },
-                    { key: "karbohidrat" as const, label: "Carbs (g)" },
-                    { key: "serat" as const, label: "Fiber (g)" },
-                    { key: "gula" as const, label: "Sugar (g)" },
-                  ] satisfies { key: keyof MenuNutrition; label: string }[]
+                    {
+                      key: "kalori" as const,
+                      label: "Calories (kcal)",
+                      icon: <CalorieIcon className="h-5 w-5" />,
+                    },
+                    {
+                      key: "protein" as const,
+                      label: "Protein (g)",
+                      icon: <ProteinIcon className="h-5 w-5" />,
+                    },
+                    {
+                      key: "lemak" as const,
+                      label: "Fat (g)",
+                      icon: <FatIcon className="h-5 w-5" />,
+                    },
+                    {
+                      key: "karbohidrat" as const,
+                      label: "Carbs (g)",
+                      icon: <CarboIcon className="h-5 w-5" />,
+                    },
+                    {
+                      key: "serat" as const,
+                      label: "Fiber (g)",
+                      icon: (
+                        <NutrientAssetIcon
+                          name="Serat"
+                          className="h-5 w-5"
+                        />
+                      ),
+                    },
+                    {
+                      key: "gula" as const,
+                      label: "Sugar (g)",
+                      icon: (
+                        <NutrientAssetIcon
+                          name="Gula"
+                          className="h-5 w-5"
+                        />
+                      ),
+                    },
+                  ] satisfies {
+                    key: keyof MenuNutrition;
+                    label: string;
+                    icon: ReactNode;
+                  }[]
                 ).map((f) => (
                   <div key={f.key}>
-                    <label className="mb-1 block text-xs text-gray-500">
-                      {f.label}
+                    <label className="mb-1 flex items-center gap-1.5 text-xs text-gray-500">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-forest-50">
+                        {f.icon}
+                      </span>
+                      <span>{f.label}</span>
                     </label>
                     <input
                       type="number"
@@ -1070,10 +1140,10 @@ export default function RecipeBuilderPage({
                 <div className="mb-3 flex items-center justify-between">
                   <div>
                     <p className="text-sm font-semibold text-gray-700">
-                      Makronutrien Manual (Opsional)
+                      Nutrien Tambahan Manual (Opsional)
                     </p>
                     <p className="text-xs text-gray-500">
-                      Tambahkan nilai makronutrien tambahan secara manual.
+                      Tambahkan makronutrien dan mikronutrien secara manual.
                     </p>
                   </div>
                   <button
@@ -1082,14 +1152,14 @@ export default function RecipeBuilderPage({
                     className="rounded-xl border border-forest-200 bg-white px-3 py-1.5 text-xs font-semibold text-forest-800 transition-colors hover:bg-forest-50"
                   >
                     <span className="inline-flex items-center gap-1.5">
-                      <Plus className="h-3 w-3" /> Tambah Makronutrien
+                      <Plus className="h-3 w-3" /> Tambah Nutrien
                     </span>
                   </button>
                 </div>
 
                 {manualMacros.length === 0 ? (
                   <p className="text-xs text-gray-400">
-                    Belum ada makronutrien manual.
+                    Belum ada nutrien tambahan manual.
                   </p>
                 ) : (
                   <div className="space-y-2">
@@ -1105,9 +1175,21 @@ export default function RecipeBuilderPage({
                             setMacroPickerRowId(item.rowId);
                             setMacroSearch(item.nama);
                           }}
-                          className="rounded-[14px] border border-slate-200 bg-white px-3 py-2.5 text-left text-sm text-gray-700 transition hover:border-forest-200 hover:bg-forest-50"
+                          className="flex items-center gap-2 rounded-[14px] border border-slate-200 bg-white px-3 py-2.5 text-left text-sm text-gray-700 transition hover:border-forest-200 hover:bg-forest-50"
                         >
-                          {item.nama || "Pilih makronutrien"}
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-forest-50">
+                            {item.nama ? (
+                              <NutrientAssetIcon
+                                name={item.nama}
+                                className="h-5 w-5"
+                              />
+                            ) : (
+                              <Plus className="h-3.5 w-3.5 text-forest-700" />
+                            )}
+                          </span>
+                          <span className="truncate">
+                            {item.nama || "Pilih nutrien"}
+                          </span>
                         </button>
                         <input
                           type="number"
@@ -1381,6 +1463,10 @@ export default function RecipeBuilderPage({
                     key={n.label}
                     className="rounded-lg bg-forest-50 p-2 text-center"
                   >
+                    <NutrientAssetIcon
+                      name={n.label}
+                      className="mx-auto mb-1 h-5 w-5"
+                    />
                     <p className="text-[9px] text-gray-400">{n.label}</p>
                     <p className="text-sm font-bold text-forest-800">
                       {n.val}
@@ -1424,7 +1510,7 @@ export default function RecipeBuilderPage({
                   Pilih Makronutrien
                 </p>
                 <h3 className="mt-1 text-lg font-bold text-gray-800">
-                  Makronutrien Manual
+                  Nutrien Manual
                 </h3>
                 <p className="mt-1 text-sm leading-6 text-gray-500">
                   Cari lalu pilih nutrien tambahan yang paling relevan.
@@ -1447,7 +1533,7 @@ export default function RecipeBuilderPage({
               <input
                 value={macroSearch}
                 onChange={(e) => setMacroSearch(e.target.value)}
-                placeholder="Cari Omega-3, zat besi, kalsium..."
+                placeholder="Cari omega, vitamin, mineral..."
                 className="w-full py-3 pl-10 pr-4 text-sm"
               />
             </div>
@@ -1461,13 +1547,21 @@ export default function RecipeBuilderPage({
                   className="w-full rounded-[18px] border border-gray-100 bg-white p-3 text-left transition hover:-translate-y-0.5 hover:border-forest-200 hover:bg-forest-50 hover:shadow-sm"
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-bold text-gray-800">
-                        {option.nama}
-                      </p>
-                      <p className="mt-1 text-xs leading-5 text-gray-500">
-                        {option.note}
-                      </p>
+                    <div className="flex min-w-0 gap-3">
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-forest-50">
+                        <NutrientAssetIcon
+                          name={option.nama}
+                          className="h-8 w-8"
+                        />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-gray-800">
+                          {option.nama}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-gray-500">
+                          {option.note}
+                        </p>
+                      </div>
                     </div>
                     <span className="rounded-full bg-forest-100 px-2.5 py-1 text-[10px] font-bold text-forest-800">
                       {option.satuan}

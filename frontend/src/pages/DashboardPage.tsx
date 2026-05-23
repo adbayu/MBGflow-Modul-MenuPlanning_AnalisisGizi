@@ -31,6 +31,7 @@ import {
   CalorieIcon,
   CarboIcon,
   FatIcon,
+  NutrientAssetIcon,
   ProteinIcon,
 } from "../components/icons/NutrientIcons";
 import pregnantImage from "../assets/images/MBG-Posyandu-akuratnews.id_.jpeg";
@@ -1889,13 +1890,15 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                                 <div className="flex items-center justify-between gap-3">
                                   <div className="flex min-w-0 items-center gap-2">
                                     <span
-                                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-[10px] font-black"
+                                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
                                       style={{
                                         backgroundColor: `${field.color}18`,
-                                        color: field.color,
                                       }}
                                     >
-                                      {field.abbr}
+                                      <NutrientAssetIcon
+                                        name={field.label}
+                                        className="h-6 w-6"
+                                      />
                                     </span>
                                     <div className="min-w-0">
                                       <p className="truncate text-sm font-bold text-ink-700">
