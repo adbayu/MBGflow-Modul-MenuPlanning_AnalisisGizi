@@ -61,6 +61,7 @@ const HOLIDAY_API = "https://libur.deno.dev/api";
 const WEEKLY_PLAN_STORAGE_KEY = "mbg_weekly_plan_v1";
 const WEEKLY_PLAN_BY_LOCATION_STORAGE_KEY = "mbg_weekly_plan_by_location_v1";
 const SAVED_WEEKLY_LOCATION_STORAGE_KEY = "mbg_saved_weekly_location_v1";
+const WEEKLY_PERIOD_STORAGE_KEY = "mbg_weekly_period_anchor_v1";
 
 async function readJsonResponse<T>(res: Response, fallbackMessage: string) {
   const text = await res.text();
@@ -358,6 +359,17 @@ function resolveMenuImageUrl(gambarUrl: string | null | undefined) {
   return `${API_ORIGIN}${gambarUrl}`;
 }
 
+function dateFromKey(dateKey: string) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+}
+
+function addDays(dateKey: string, days: number) {
+  const date = dateFromKey(dateKey);
+  date.setDate(date.getDate() + days);
+  return toDateKey(date);
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -630,6 +642,17 @@ const DEFAULT_DISTRIBUTION_LOCATIONS: DistributionLocation[] = [
   },
 ];
 
+const EMPTY_DISTRIBUTION_LOCATION: DistributionLocation = {
+  id: "",
+  type: "sekolah",
+  recipients: [],
+  image: studentsImage,
+  name: "Lokasi belum tersedia",
+  target: "0 penerima",
+  schedule: "-",
+  note: "Tambahkan lokasi distribusi di database agar jadwal dapat dipakai.",
+};
+
 function withDistributionImage(location: DistributionLocation) {
   return {
     ...location,
@@ -662,10 +685,8 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const [plateMenuIds, setPlateMenuIds] = useState<number[]>([]);
   const [distributionLocations, setDistributionLocations] = useState<
     DistributionLocation[]
-  >(DEFAULT_DISTRIBUTION_LOCATIONS);
-  const [activeLocationId, setActiveLocationId] = useState(
-    DEFAULT_DISTRIBUTION_LOCATIONS[0].id,
-  );
+  >([]);
+  const [activeLocationId, setActiveLocationId] = useState("");
   const [weeklyPlanByLocation, setWeeklyPlanByLocation] =
     useState<WeeklyPlanByLocation>({});
   const [savedScheduleMap, setSavedScheduleMap] = useState<SavedScheduleMap>(
@@ -688,8 +709,15 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const [showDistributionModal, setShowDistributionModal] = useState(false);
   const [showSaveScheduleConfirm, setShowSaveScheduleConfirm] = useState(false);
   const [showPlateMenuModal, setShowPlateMenuModal] = useState(false);
+  const [showSchedulePeriodModal, setShowSchedulePeriodModal] = useState(false);
   const [holidayMap, setHolidayMap] = useState<HolidayMap>({});
   const [weeklyStateLoaded, setWeeklyStateLoaded] = useState(false);
+  const [weeklyPeriodAnchor, setWeeklyPeriodAnchor] = useState(() => {
+    const stored = localStorage.getItem(WEEKLY_PERIOD_STORAGE_KEY);
+    return stored && /^\d{4}-\d{2}-\d{2}$/.test(stored)
+      ? stored
+      : toDateKey(new Date());
+  });
 
   const openDistributionModal = () => {
     setShowDistributionModal(true);
@@ -698,7 +726,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const activeLocation =
     distributionLocations.find(
       (location) => location.id === activeLocationId,
-    ) || distributionLocations[0] || DEFAULT_DISTRIBUTION_LOCATIONS[0];
+    ) || distributionLocations[0] || EMPTY_DISTRIBUTION_LOCATION;
   const weeklyPlan = weeklyPlanByLocation[activeLocationId] || {};
   const activeLocationRecipients = getLocationRecipientLabel(activeLocation);
   const activeLocationTargets = getLocationTargetLabel(activeLocation);
@@ -743,6 +771,10 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(WEEKLY_PERIOD_STORAGE_KEY, weeklyPeriodAnchor);
+  }, [weeklyPeriodAnchor]);
 
   useEffect(() => {
     let active = true;
@@ -936,7 +968,10 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     return () => window.clearTimeout(timeoutId);
   }, [savedScheduleMap, weeklyPlanByLocation, weeklyStateLoaded]);
 
-  const weekDays = useMemo(() => getCurrentWeekDays(new Date()), []);
+  const weekDays = useMemo(
+    () => getCurrentWeekDays(dateFromKey(weeklyPeriodAnchor)),
+    [weeklyPeriodAnchor],
+  );
   const weekPeriod =
     weekDays.length > 0
       ? `${weekDays[0].dateLabel} - ${weekDays[weekDays.length - 1].dateLabel}`
@@ -971,7 +1006,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     [menus, plateMenuIds],
   );
 
-  useEffect(() => {
+  const runPlateAnalysis = async () => {
     if (plateMenuIds.length === 0) {
       setPlateAiAnalysis(null);
       setPlateAiError(null);
@@ -979,39 +1014,38 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       return;
     }
 
-    const controller = new AbortController();
     setPlateAiLoading(true);
     setPlateAiError(null);
 
-    fetch(`${API}/analyze-plate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        menuIds: plateMenuIds,
-        target: STANDAR[kelompok].label,
-        targetKey: kelompok,
-      }),
-      signal: controller.signal,
-    })
-      .then(async (res) => {
-        const data = await readJsonResponse<AIAnalysisResult>(
-          res,
-          "Analisis AI gagal",
-        );
-        setPlateAiAnalysis(data as AIAnalysisResult);
-      })
-      .catch((err: unknown) => {
-        if (err instanceof DOMException && err.name === "AbortError") return;
+    try {
+      const res = await fetch(`${API}/analyze-plate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          menuIds: plateMenuIds,
+          target: STANDAR[kelompok].label,
+          targetKey: kelompok,
+        }),
+      });
+      const data = await readJsonResponse<AIAnalysisResult>(
+        res,
+        "Analisis AI gagal",
+      );
+      setPlateAiAnalysis(data as AIAnalysisResult);
+    } catch (err: unknown) {
         setPlateAiError(
           err instanceof Error ? err.message : "Analisis AI gagal diproses",
         );
         setPlateAiAnalysis(null);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setPlateAiLoading(false);
-      });
+    } finally {
+      setPlateAiLoading(false);
+    }
+  };
 
-    return () => controller.abort();
+  useEffect(() => {
+    setPlateAiAnalysis(null);
+    setPlateAiError(null);
+    setPlateAiLoading(false);
   }, [kelompok, plateMenuIds]);
 
   useEffect(() => {
@@ -1315,7 +1349,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   ].filter((slice) => slice.value > 0);
 
   const dataWarnings = plateAiAnalysis?.data_quality?.warnings || [];
-  const retryPlateAi = () => setPlateMenuIds((prev) => [...prev]);
+  const retryPlateAi = () => runPlateAnalysis();
 
   const addMenu = (id: number) =>
     setPlateMenuIds((prev) =>
@@ -1752,7 +1786,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
           </div>
 
           <div className="space-y-5 p-4 sm:p-6">
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto]">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto_auto]">
               <button
                 onClick={() => setShowPlateMenuModal(true)}
                 className="flex min-h-14 items-center justify-between gap-3 rounded-[22px] border border-ink-100 bg-white px-4 py-3 text-left text-sm text-gray-700 shadow-sm transition hover:border-forest-200 hover:bg-forest-50"
@@ -1768,15 +1802,23 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
               </button>
               <button
                 onClick={() => selectedMenuId && addMenu(selectedMenuId)}
-                disabled={!selectedMenuId || plateAiLoading}
+                disabled={!selectedMenuId}
                 className="btn-primary inline-flex min-h-14 items-center justify-center gap-2 px-6 text-sm disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" />
+                Tambah ke Piringku
+              </button>
+              <button
+                onClick={runPlateAnalysis}
+                disabled={plateMenuIds.length === 0 || plateAiLoading}
+                className="inline-flex min-h-14 items-center justify-center gap-2 rounded-[22px] border border-forest-700 bg-forest-800 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-forest-900 disabled:opacity-50"
               >
                 {plateAiLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Plus className="h-4 w-4" />
+                  <Sparkles className="h-4 w-4" />
                 )}
-                Tambah ke Piringku
+                Analisis AI
               </button>
             </div>
 
@@ -2350,7 +2392,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                           <AlertTriangle className="mt-0.5 h-5 w-5 text-red-600" />
                           <div>
                             <p className="text-sm font-bold text-red-800">
-                              Gemini API wajib untuk analisis dashboard
+                              OpenAI/Gemini/DeepSeek API wajib untuk analisis dashboard
                             </p>
                             <p className="mt-1 text-sm text-red-700">
                               {plateAiError}
@@ -2378,7 +2420,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                               Catatan AI
                             </p>
                             <p className="text-xs text-violet-700/70">
-                              Gemini insight
+                              {plateAiAnalysis.ai_engine}
                             </p>
                           </div>
                         </div>
@@ -2425,7 +2467,33 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                         </p>
                       </div>
                     </>
-                  ) : null}
+                  ) : (
+                    <div className="xl:col-span-3 rounded-[30px] border border-forest-100 bg-white p-5 shadow-sm">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-forest-50 text-forest-800">
+                            <Sparkles className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-ink-700">
+                              Analisis belum dijalankan
+                            </p>
+                            <p className="mt-1 text-sm leading-6 text-ink-400">
+                              Pilih menu Piringku, lalu tekan Analisis AI.
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={runPlateAnalysis}
+                          disabled={plateMenuIds.length === 0}
+                          className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-forest-800 px-4 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50"
+                        >
+                          <Sparkles className="h-4 w-4" />
+                          Jalankan Analisis
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -2593,8 +2661,15 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                 <CalendarDays className="h-3.5 w-3.5" /> Lokasi Distribusi
               </button>
               <button
+                onClick={() => setShowSchedulePeriodModal(true)}
+                className="inline-flex items-center gap-1 rounded-full border border-forest-200 bg-white px-4 py-2 text-xs font-semibold text-forest-700 hover:bg-forest-50"
+              >
+                <Clock3 className="h-3.5 w-3.5" /> Periode
+              </button>
+              <button
                 onClick={() => setShowSaveScheduleConfirm(true)}
-                className="inline-flex items-center gap-1 rounded-full border border-forest-700 bg-forest-800 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-forest-900"
+                disabled={!activeLocation.id}
+                className="inline-flex items-center gap-1 rounded-full border border-forest-700 bg-forest-800 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-forest-900 disabled:opacity-50"
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 Simpan Jadwal Mingguan
@@ -3284,6 +3359,73 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                 );
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {showSchedulePeriodModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
+          <div className="w-full max-w-md rounded-[24px] bg-white p-6 shadow-xl">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-forest-700/80">
+                  Periode Jadwal
+                </p>
+                <h3 className="mt-1 text-lg font-bold text-gray-800">
+                  Pilih Periode Penjadwalan
+                </h3>
+                <p className="mt-1 text-sm leading-6 text-gray-500">
+                  Periode aktif: {weekPeriod}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowSchedulePeriodModal(false)}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 transition hover:bg-forest-50 hover:text-forest-800"
+                title="Tutup"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <label className="block">
+              <span className="text-xs font-bold text-ink-500">
+                Tanggal dalam minggu jadwal
+              </span>
+              <input
+                type="date"
+                value={weeklyPeriodAnchor}
+                onChange={(e) => setWeeklyPeriodAnchor(e.target.value)}
+                className="mt-2 w-full px-4 py-3 text-sm"
+              />
+            </label>
+
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              <button
+                onClick={() => setWeeklyPeriodAnchor(addDays(weeklyPeriodAnchor, -7))}
+                className="btn-secondary px-3 py-3 text-xs"
+              >
+                Minggu Lalu
+              </button>
+              <button
+                onClick={() => setWeeklyPeriodAnchor(toDateKey(new Date()))}
+                className="btn-secondary px-3 py-3 text-xs"
+              >
+                Minggu Ini
+              </button>
+              <button
+                onClick={() => setWeeklyPeriodAnchor(addDays(weeklyPeriodAnchor, 7))}
+                className="btn-secondary px-3 py-3 text-xs"
+              >
+                Minggu Depan
+              </button>
+            </div>
+
+            <button
+              onClick={() => setShowSchedulePeriodModal(false)}
+              className="mt-5 w-full rounded-[18px] bg-forest-800 px-4 py-3 text-sm font-semibold text-white transition hover:bg-forest-900"
+            >
+              Terapkan
+            </button>
           </div>
         </div>
       )}

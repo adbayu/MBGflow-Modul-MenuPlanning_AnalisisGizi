@@ -18,7 +18,7 @@ function extractJsonFromText(text) {
     } catch {}
   }
 
-  throw new Error("Respons Gemini tidak bisa di-parse sebagai JSON");
+  throw new Error("Respons AI tidak bisa di-parse sebagai JSON");
 }
 
 const { GoogleGenerativeAI } = require("@google/generative-ai");
@@ -562,13 +562,180 @@ async function callGeminiAPI(payload) {
     throw new Error("Respons Gemini tidak memiliki struktur yang diharapkan");
   }
 
+  return normalizeAiOutput(parsed);
+}
+
+function getOpenAIOutputText(data) {
+  if (typeof data.output_text === "string") return data.output_text;
+
+  const chunks = [];
+  for (const item of data.output || []) {
+    for (const content of item.content || []) {
+      if (typeof content.text === "string") chunks.push(content.text);
+    }
+  }
+
+  return chunks.join("\n").trim();
+}
+
+async function callOpenAIAPI(payload) {
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey || apiKey === "your_openai_api_key_here") {
+    throw new Error("OPENAI_API_KEY belum dikonfigurasi di file .env");
+  }
+
+  if (apiKey.length < 20) {
+    throw new Error("OPENAI_API_KEY tampak tidak valid");
+  }
+
+  const prompt = buildPrompt(...payload);
+  const model = process.env.OPENAI_MODEL || "gpt-5.2";
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      message: { type: "string" },
+      catatan: { type: "string" },
+      tips: { type: "string" },
+      kesimpulan: { type: "string" },
+      recommendations: {
+        type: "array",
+        maxItems: 5,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            jenis: { type: "string" },
+            nutrient: { type: ["string", "null"] },
+            severity: { type: "string", enum: ["success", "warning", "danger"] },
+            pesan: { type: "string" },
+            detail: { type: ["string", "null"] },
+          },
+          required: ["jenis", "nutrient", "severity", "pesan", "detail"],
+        },
+      },
+    },
+    required: ["message", "catatan", "tips", "kesimpulan", "recommendations"],
+  };
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      input: [
+        {
+          role: "system",
+          content:
+            "Kamu ahli gizi MBG Indonesia. Balas hanya JSON valid sesuai schema.",
+        },
+        { role: "user", content: prompt },
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: "nutrition_reasoning_output",
+          strict: true,
+          schema,
+        },
+      },
+    }),
+  });
+
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      data?.error?.message ||
+      data?.message ||
+      `OpenAI API gagal (${response.status})`;
+    throw new Error(message);
+  }
+
+  const text = getOpenAIOutputText(data);
+  const parsed = extractJsonFromText(text);
+  if (!parsed.message || !Array.isArray(parsed.recommendations)) {
+    throw new Error("Respons OpenAI tidak memiliki struktur yang diharapkan");
+  }
+
+  return {
+    ...normalizeAiOutput(parsed),
+    model,
+  };
+}
+
+async function callDeepSeekAPI(payload) {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+
+  if (!apiKey || apiKey === "your_deepseek_api_key_here") {
+    throw new Error("DEEPSEEK_API_KEY belum dikonfigurasi di file .env");
+  }
+
+  if (apiKey.length < 20) {
+    throw new Error("DEEPSEEK_API_KEY tampak tidak valid");
+  }
+
+  const prompt = buildPrompt(...payload);
+  const model = process.env.DEEPSEEK_MODEL || "deepseek-chat";
+  const response = await fetch("https://api.deepseek.com/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Kamu ahli gizi MBG Indonesia. Balas hanya JSON valid sesuai instruksi.",
+        },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.45,
+      max_tokens: 1400,
+      response_format: { type: "json_object" },
+    }),
+  });
+
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      data?.error?.message ||
+      data?.message ||
+      `DeepSeek API gagal (${response.status})`;
+    throw new Error(message);
+  }
+
+  const text = data?.choices?.[0]?.message?.content || "";
+  const parsed = extractJsonFromText(text);
+  if (!parsed.message || !Array.isArray(parsed.recommendations)) {
+    throw new Error("Respons DeepSeek tidak memiliki struktur yang diharapkan");
+  }
+
+  return {
+    ...normalizeAiOutput(parsed),
+    model,
+  };
+}
+
+function hasConfiguredEnv(name, placeholder) {
+  const value = process.env[name];
+  return Boolean(value && value !== placeholder);
+}
+
+function normalizeAiOutput(parsed) {
   const validSeverities = new Set(["success", "warning", "danger"]);
   return {
     message: parsed.message,
     catatan: parsed.catatan || parsed.message,
-    tips: parsed.tips || parsed.recommendations[0]?.pesan || parsed.message,
+    tips: parsed.tips || parsed.recommendations?.[0]?.pesan || parsed.message,
     kesimpulan: parsed.kesimpulan || parsed.message,
-    recommendations: parsed.recommendations.map((rec) => ({
+    recommendations: (parsed.recommendations || []).map((rec) => ({
       jenis: rec.jenis || "Gizi",
       nutrient: rec.nutrient || null,
       severity: validSeverities.has(rec.severity) ? rec.severity : "warning",
@@ -675,11 +842,11 @@ async function analyzeNutrition(nutrition, namaMenu, menuContext = {}) {
   const macroDistribution = getMacroDistribution(analysis);
 
   let aiOutput;
-  let poweredBy = "Google Gemini AI";
-  let aiEngine = "gemini-2.5-flash-lite";
+  let poweredBy = "OpenAI";
+  let aiEngine = process.env.OPENAI_MODEL || "gpt-5.2";
 
   try {
-    aiOutput = await callGeminiAPI([
+    const payload = [
       namaMenu,
       target,
       analysis,
@@ -688,15 +855,62 @@ async function analyzeNutrition(nutrition, namaMenu, menuContext = {}) {
       overallStatus,
       macroDistribution,
       warnings,
-    ]);
+    ];
+
+    const providers = [
+      {
+        name: "OpenAI Responses API",
+        engine: process.env.OPENAI_MODEL || "gpt-5.2",
+        configured: hasConfiguredEnv("OPENAI_API_KEY", "your_openai_api_key_here"),
+        run: callOpenAIAPI,
+      },
+      {
+        name: "Google Gemini AI",
+        engine: "gemini-2.5-flash-lite",
+        configured: hasConfiguredEnv("GEMINI_API_KEY", "your_gemini_api_key_here"),
+        run: callGeminiAPI,
+      },
+      {
+        name: "DeepSeek AI",
+        engine: process.env.DEEPSEEK_MODEL || "deepseek-chat",
+        configured: hasConfiguredEnv(
+          "DEEPSEEK_API_KEY",
+          "your_deepseek_api_key_here",
+        ),
+        run: callDeepSeekAPI,
+      },
+    ];
+    const providerErrors = [];
+
+    for (const provider of providers) {
+      if (!provider.configured) {
+        providerErrors.push(`${provider.name}: API key belum dikonfigurasi`);
+        continue;
+      }
+
+      try {
+        aiOutput = await provider.run(payload);
+        aiEngine = aiOutput.model || provider.engine;
+        poweredBy = provider.name;
+        break;
+      } catch (providerError) {
+        const message = providerError?.message || "gagal tanpa detail";
+        providerErrors.push(`${provider.name}: ${message}`);
+        console.warn(`[AI Nutrition] ${provider.name} failed: ${message}`);
+      }
+    }
+
+    if (!aiOutput) {
+      throw new Error(providerErrors.join(" | "));
+    }
   } catch (err) {
     const msg = err.message || "";
-    if (menuContext.requireGemini) {
+    if (menuContext.requireAi || menuContext.requireGemini) {
       throw new Error(
-        `Gemini API tidak tersedia untuk analisis dashboard: ${msg}`,
+        `AI API tidak tersedia untuk analisis dashboard: ${msg}`,
       );
     }
-    console.warn(`[AI Nutrition] Gemini fallback: ${msg}`);
+    console.warn(`[AI Nutrition] provider fallback: ${msg}`);
     aiOutput = buildFallbackResult(
       namaMenu,
       target,

@@ -128,7 +128,7 @@ router.post("/analyze-plate", async (req, res) => {
         kategori: target,
         deskripsi: `Analisis gabungan ${rows.length} menu untuk ${target}. Menu: ${menuNames}`,
         manualNutrients: manualRows,
-        requireGemini: true,
+        requireAi: true,
       },
     );
     if (missingNutrition.length > 0) {

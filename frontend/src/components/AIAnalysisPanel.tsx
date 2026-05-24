@@ -98,11 +98,20 @@ export default function AIAnalysisPanel({
     setError(null);
     setHasAnalyzed(false);
     setIsFromCache(false);
-    runAnalysis();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuId]);
 
-  const isGemini = (analysis?.ai_engine ?? "").toLowerCase().includes("gemini");
+  const engine = (analysis?.ai_engine ?? "").toLowerCase();
+  const isGemini = engine.includes("gemini");
+  const isOpenAI = engine.includes("gpt") || engine.includes("openai");
+  const isDeepSeek = engine.includes("deepseek");
+  const engineLabel = isOpenAI
+    ? "OpenAI"
+    : isGemini
+      ? "Gemini AI"
+      : isDeepSeek
+        ? "DeepSeek AI"
+        : "Rule Based";
 
   const formatTime = (iso: string) =>
     new Date(iso).toLocaleTimeString("id-ID", {
@@ -197,7 +206,34 @@ export default function AIAnalysisPanel({
     );
   }
 
-  if (!analysis || !hasAnalyzed) return null;
+  if (!analysis || !hasAnalyzed) {
+    return (
+      <div className="border-t border-ink-100 bg-[linear-gradient(180deg,#fcfdfc_0%,#f5f8f5_100%)] p-6">
+        <div className="surface-muted flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-forest-50 text-forest-800">
+              <Brain className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-ink-700">
+                Analisis Gizi AI
+              </p>
+              <p className="mt-1 text-xs leading-6 text-ink-400">
+                Tekan tombol untuk menjalankan analisis {menuNama}.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => runAnalysis()}
+            className="btn-primary inline-flex items-center justify-center gap-2 px-4 py-3 text-sm"
+          >
+            <Sparkles className="h-4 w-4" />
+            Jalankan Analisis
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const circumference = 2 * Math.PI * 42;
   const scoreDash = `${(analysis.skor_gizi / 100) * circumference} ${circumference}`;
@@ -227,7 +263,7 @@ export default function AIAnalysisPanel({
                   ) : (
                     <Zap className="h-3 w-3" />
                   )}
-                  {isGemini ? "Gemini AI" : "Rule Based"}
+                  {engineLabel}
                 </span>
               </div>
               <p className="mt-1 text-sm leading-6 text-ink-400">
@@ -397,7 +433,7 @@ export default function AIAnalysisPanel({
                   Engine
                 </p>
                 <p className="mt-2 text-sm font-semibold text-white">
-                  {isGemini ? "Gemini AI" : "Rule Based"}
+                  {engineLabel}
                 </p>
               </div>
               <div className="rounded-[22px] border border-white/10 bg-white/8 p-4">

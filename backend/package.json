@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "setup-db": "node setup-db.js"
+    "setup-db": "node setup-db.js",
+    "test:models": "node test-detect-models.js"
   },
   "keywords": [],
   "author": "",
