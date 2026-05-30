@@ -7,6 +7,8 @@ import {
   CalendarDays,
   CheckCircle2,
   ChefHat,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   FlaskConical,
   Gauge,
@@ -223,6 +225,7 @@ type WeeklyPlanByLocation = Record<string, WeeklyPlan>;
 type SavedScheduleMap = Record<string, string>;
 type HolidayMap = Record<string, string>;
 type MenuMetaMap = Record<number, MenuMetaEntry>;
+type SchedulePeriodStatus = "complete" | "partial" | "empty";
 
 interface WeekDay {
   dateKey: string;
@@ -270,6 +273,39 @@ function normalizeNutrientName(name: string) {
   };
   return aliases[key] || key;
 }
+
+interface WeeklyPeriodOption {
+  index: number;
+  title: string;
+  startDate: Date;
+  endDate: Date;
+  startKey: string;
+  rangeLabel: string;
+  fullRangeLabel: string;
+  dayKeys: string[];
+  days: WeekDay[];
+}
+
+interface WeeklyPeriodSummary extends WeeklyPeriodOption {
+  status: SchedulePeriodStatus;
+  statusLabel: string;
+  filledDayCount: number;
+  menuCount: number;
+  uniqueMenuCount: number;
+  akgCompliance: number;
+  foodWasteRisk: string;
+  missingLabels: string[];
+  completionPercent: number;
+}
+
+const OPERATIONAL_DAY_LABELS = [
+  "Senin",
+  "Selasa",
+  "Rabu",
+  "Kamis",
+  "Jumat",
+  "Sabtu",
+];
 
 function convertNutrientUnit(value: number, fromUnit: string, toUnit: string) {
   const from = (fromUnit || toUnit).toLowerCase().replace("ug", "mcg");
@@ -324,8 +360,6 @@ function toDateKey(date: Date) {
 }
 
 function getCurrentWeekDays(now = new Date()): WeekDay[] {
-  const dayLabels = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
-
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
 
@@ -335,7 +369,7 @@ function getCurrentWeekDays(now = new Date()): WeekDay[] {
   const monday = new Date(today);
   monday.setDate(today.getDate() - daysFromMonday);
 
-  return dayLabels.map((label, idx) => {
+  return OPERATIONAL_DAY_LABELS.map((label, idx) => {
     const current = new Date(monday);
     current.setDate(monday.getDate() + idx);
 
@@ -364,10 +398,97 @@ function dateFromKey(dateKey: string) {
   return Number.isNaN(date.getTime()) ? new Date() : date;
 }
 
-function addDays(dateKey: string, days: number) {
-  const date = dateFromKey(dateKey);
-  date.setDate(date.getDate() + days);
-  return toDateKey(date);
+function addCalendarDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function addCalendarMonths(date: Date, months: number) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months);
+  return next;
+}
+
+function getOperationalMonday(date: Date) {
+  const current = new Date(date);
+  current.setHours(0, 0, 0, 0);
+  const jsDay = current.getDay();
+  const daysFromMonday = jsDay === 0 ? 6 : jsDay - 1;
+  current.setDate(current.getDate() - daysFromMonday);
+  return current;
+}
+
+function getMonthKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonthLong(date: Date) {
+  return date.toLocaleDateString("id-ID", { month: "long" });
+}
+
+function formatPeriodRange(start: Date, end: Date, includeYear = false) {
+  const sameMonth = start.getMonth() === end.getMonth();
+  const startLabel = start.toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: sameMonth ? undefined : "short",
+  });
+  const endLabel = end.toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: includeYear ? "numeric" : undefined,
+  });
+  return `${startLabel} - ${endLabel}`;
+}
+
+function buildOperationalWeek(startDate: Date, index: number): WeeklyPeriodOption {
+  const start = new Date(startDate);
+  const end = addCalendarDays(start, 5);
+  const todayKey = toDateKey(new Date());
+  const days = OPERATIONAL_DAY_LABELS.map((dayLabel, idx) => {
+    const date = addCalendarDays(start, idx);
+    const dateKey = toDateKey(date);
+    return {
+      dateKey,
+      dayLabel,
+      dateLabel: date.toLocaleDateString("id-ID", {
+        day: "2-digit",
+        month: "short",
+      }),
+      isToday: dateKey === todayKey,
+    };
+  });
+
+  return {
+    index,
+    title: `Minggu ${index}`,
+    startDate: start,
+    endDate: end,
+    startKey: toDateKey(start),
+    rangeLabel: formatPeriodRange(start, end),
+    fullRangeLabel: formatPeriodRange(start, end, true),
+    dayKeys: days.map((day) => day.dateKey),
+    days,
+  };
+}
+
+function createMonthlyOperationalPeriods(anchor: Date) {
+  const firstOfMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  const firstMonday = getOperationalMonday(firstOfMonth);
+  return Array.from({ length: 6 }, (_, idx) =>
+    buildOperationalWeek(addCalendarDays(firstMonday, idx * 7), idx + 1),
+  );
+}
+
+function getOperationalMonthLabel(anchor: Date) {
+  const periods = createMonthlyOperationalPeriods(anchor);
+  const start = periods[0].startDate;
+  const end = periods[periods.length - 1].endDate;
+  const yearLabel =
+    start.getFullYear() === end.getFullYear()
+      ? `${end.getFullYear()}`
+      : `${start.getFullYear()} - ${end.getFullYear()}`;
+  return `${formatMonthLong(start)} - ${formatMonthLong(end)} ${yearLabel}`;
 }
 
 function escapeHtml(value: string) {
@@ -710,6 +831,10 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const [showSaveScheduleConfirm, setShowSaveScheduleConfirm] = useState(false);
   const [showPlateMenuModal, setShowPlateMenuModal] = useState(false);
   const [showSchedulePeriodModal, setShowSchedulePeriodModal] = useState(false);
+  const [periodSearch, setPeriodSearch] = useState("");
+  const [periodStatusFilter, setPeriodStatusFilter] = useState<
+    "all" | SchedulePeriodStatus
+  >("all");
   const [holidayMap, setHolidayMap] = useState<HolidayMap>({});
   const [weeklyStateLoaded, setWeeklyStateLoaded] = useState(false);
   const [weeklyPeriodAnchor, setWeeklyPeriodAnchor] = useState(() => {
@@ -980,6 +1105,119 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     () => new Map(menus.map((menu) => [menu.id, menu])),
     [menus],
   );
+
+  const schedulePeriods = useMemo(() => {
+    const target = STANDAR[kelompok];
+    return createMonthlyOperationalPeriods(dateFromKey(weeklyPeriodAnchor)).map(
+      (period): WeeklyPeriodSummary => {
+        const dayMenuIds = period.dayKeys.map((dateKey) =>
+          getDayMenuIds(normalizeDayPlan(weeklyPlan[dateKey])),
+        );
+        const filledDayCount = dayMenuIds.filter((ids) => ids.length > 0).length;
+        const allMenuIds = dayMenuIds.flat();
+        const uniqueMenuIds = Array.from(new Set(allMenuIds));
+        const periodMenus = uniqueMenuIds
+          .map((id) => menuLookup.get(id))
+          .filter((menu): menu is Menu => Boolean(menu));
+
+        const totals = periodMenus.reduce(
+          (acc, menu) => ({
+            kalori: acc.kalori + Number(menu.kalori || 0),
+            protein: acc.protein + Number(menu.protein || 0),
+            karbo: acc.karbo + Number(menu.karbohidrat || 0),
+            lemak: acc.lemak + Number(menu.lemak || 0),
+          }),
+          { kalori: 0, protein: 0, karbo: 0, lemak: 0 },
+        );
+        const avgByDay = Math.max(1, filledDayCount);
+        const ratios = [
+          totals.kalori / avgByDay / target.kalori,
+          totals.protein / avgByDay / target.protein,
+          totals.karbo / avgByDay / target.karbo,
+          totals.lemak / avgByDay / target.lemak,
+        ].filter((value) => Number.isFinite(value) && value > 0);
+        const akgCompliance =
+          ratios.length > 0
+            ? Math.min(
+                125,
+                Math.round(
+                  (ratios.reduce((sum, value) => sum + Math.min(value, 1.15), 0) /
+                    ratios.length) *
+                    100,
+                ),
+              )
+            : 0;
+        const completionPercent = Math.round((filledDayCount / 6) * 100);
+        const status: SchedulePeriodStatus =
+          filledDayCount === 6
+            ? "complete"
+            : filledDayCount > 0
+              ? "partial"
+              : "empty";
+        const statusLabel =
+          status === "complete"
+            ? "Jadwal Lengkap"
+            : status === "partial"
+              ? "Sebagian Terisi"
+              : "Belum Ada Jadwal";
+        const missingLabels = period.days
+          .filter((_day, idx) => dayMenuIds[idx].length === 0)
+          .map((day) => day.dayLabel);
+        const foodWasteRisk =
+          status === "empty"
+            ? "Belum Terdeteksi"
+            : status === "complete" && uniqueMenuIds.length >= 10
+              ? "Rendah"
+              : status === "partial"
+                ? "Sedang"
+                : "Terkendali";
+
+        return {
+          ...period,
+          status,
+          statusLabel,
+          filledDayCount,
+          menuCount: allMenuIds.length,
+          uniqueMenuCount: uniqueMenuIds.length,
+          akgCompliance,
+          foodWasteRisk,
+          missingLabels,
+          completionPercent,
+        };
+      },
+    );
+  }, [kelompok, menuLookup, weeklyPeriodAnchor, weeklyPlan]);
+
+  const activeSchedulePeriod =
+    schedulePeriods.find((period) =>
+      period.dayKeys.includes(weeklyPeriodAnchor),
+    ) || schedulePeriods[0];
+
+  const visibleSchedulePeriods = schedulePeriods.filter((period) => {
+    const q = periodSearch.trim().toLowerCase();
+    const matchesSearch =
+      !q ||
+      period.title.toLowerCase().includes(q) ||
+      period.rangeLabel.toLowerCase().includes(q) ||
+      period.statusLabel.toLowerCase().includes(q);
+    const matchesStatus =
+      periodStatusFilter === "all" || period.status === periodStatusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const schedulePeriodMonthOptions = useMemo(() => {
+    const current = dateFromKey(weeklyPeriodAnchor);
+    return Array.from({ length: 7 }, (_, idx) => {
+      const optionDate = addCalendarMonths(current, idx - 3);
+      optionDate.setDate(1);
+      const key = getMonthKey(optionDate);
+      return {
+        key,
+        value: toDateKey(optionDate),
+        label: getOperationalMonthLabel(optionDate),
+      };
+    });
+  }, [weeklyPeriodAnchor]);
 
   const resolvedMenuPorsi = useMemo(() => {
     const result: Record<number, MenuPorsi> = {};
@@ -1422,6 +1660,13 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const selectDistributionLocation = (locationId: string) => {
     setActiveLocationId(locationId);
     setShowDistributionModal(false);
+  };
+
+  const shiftScheduleMonth = (offset: number) => {
+    const current = dateFromKey(weeklyPeriodAnchor);
+    setWeeklyPeriodAnchor(
+      toDateKey(new Date(current.getFullYear(), current.getMonth() + offset, 1)),
+    );
   };
 
   const confirmSaveWeeklySchedule = () => {
@@ -3364,68 +3609,390 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       )}
 
       {showSchedulePeriodModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
-          <div className="w-full max-w-md rounded-[24px] bg-white p-6 shadow-xl">
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-forest-700/80">
-                  Periode Jadwal
-                </p>
-                <h3 className="mt-1 text-lg font-bold text-gray-800">
-                  Pilih Periode Penjadwalan
-                </h3>
-                <p className="mt-1 text-sm leading-6 text-gray-500">
-                  Periode aktif: {weekPeriod}
-                </p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-3 backdrop-blur-sm sm:p-5">
+          <div className="flex max-h-[92vh] w-full max-w-[1380px] flex-col overflow-hidden rounded-[32px] border border-white/80 bg-white shadow-[0_32px_90px_rgba(12,24,16,0.28)]">
+            <div className="border-b border-gray-100 px-5 py-5 sm:px-7">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex min-w-0 items-start gap-4">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-forest-50 text-forest-800 shadow-inner">
+                    <CalendarDays className="h-7 w-7" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-2xl font-black text-gray-900">
+                      Periode Menu Mingguan
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-gray-500">
+                      Pilih dan kelola jadwal menu berdasarkan periode mingguan
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowSchedulePeriodModal(false)}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:-translate-y-0.5 hover:bg-forest-50 hover:text-forest-900"
+                  title="Tutup"
+                >
+                  <X className="h-5 w-5" />
+                </button>
               </div>
-              <button
-                onClick={() => setShowSchedulePeriodModal(false)}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 transition hover:bg-forest-50 hover:text-forest-800"
-                title="Tutup"
-              >
-                <X className="h-4 w-4" />
-              </button>
             </div>
 
-            <label className="block">
-              <span className="text-xs font-bold text-ink-500">
-                Tanggal dalam minggu jadwal
-              </span>
-              <input
-                type="date"
-                value={weeklyPeriodAnchor}
-                onChange={(e) => setWeeklyPeriodAnchor(e.target.value)}
-                className="mt-2 w-full px-4 py-3 text-sm"
-              />
-            </label>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7">
+              <div className="mb-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={() => shiftScheduleMonth(-1)}
+                    className="flex h-12 w-12 items-center justify-center rounded-[18px] border border-gray-200 bg-white text-gray-700 shadow-sm transition hover:-translate-y-0.5 hover:border-forest-200 hover:bg-forest-50"
+                    title="Bulan sebelumnya"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                  <select
+                    value={getMonthKey(dateFromKey(weeklyPeriodAnchor))}
+                    onChange={(event) => {
+                      const selected = schedulePeriodMonthOptions.find(
+                        (option) => option.key === event.target.value,
+                      );
+                      if (selected) setWeeklyPeriodAnchor(selected.value);
+                    }}
+                    className="min-h-12 min-w-[230px] rounded-[18px] border border-gray-200 bg-white px-4 text-sm font-bold text-gray-800 shadow-sm"
+                  >
+                    {schedulePeriodMonthOptions.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => shiftScheduleMonth(1)}
+                    className="flex h-12 w-12 items-center justify-center rounded-[18px] border border-gray-200 bg-white text-gray-700 shadow-sm transition hover:-translate-y-0.5 hover:border-forest-200 hover:bg-forest-50"
+                    title="Bulan berikutnya"
+                  >
+                    <ChevronRight className="h-5 w-5" />
+                  </button>
+                </div>
 
-            <div className="mt-4 grid grid-cols-3 gap-2">
-              <button
-                onClick={() => setWeeklyPeriodAnchor(addDays(weeklyPeriodAnchor, -7))}
-                className="btn-secondary px-3 py-3 text-xs"
-              >
-                Minggu Lalu
-              </button>
-              <button
-                onClick={() => setWeeklyPeriodAnchor(toDateKey(new Date()))}
-                className="btn-secondary px-3 py-3 text-xs"
-              >
-                Minggu Ini
-              </button>
-              <button
-                onClick={() => setWeeklyPeriodAnchor(addDays(weeklyPeriodAnchor, 7))}
-                className="btn-secondary px-3 py-3 text-xs"
-              >
-                Minggu Depan
-              </button>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="relative min-w-0 sm:w-64">
+                    <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      value={periodSearch}
+                      onChange={(event) => setPeriodSearch(event.target.value)}
+                      placeholder="Cari minggu..."
+                      className="h-12 w-full rounded-[18px] border-gray-200 bg-white pl-11 pr-4 text-sm shadow-sm"
+                    />
+                  </div>
+                  <div className="relative sm:w-48">
+                    <ListFilter className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+                    <select
+                      value={periodStatusFilter}
+                      onChange={(event) =>
+                        setPeriodStatusFilter(
+                          event.target.value as "all" | SchedulePeriodStatus,
+                        )
+                      }
+                      className="h-12 w-full rounded-[18px] border-gray-200 bg-white pl-11 pr-4 text-sm font-bold text-gray-800 shadow-sm"
+                    >
+                      <option value="all">Filter Status</option>
+                      <option value="complete">Jadwal Lengkap</option>
+                      <option value="partial">Sebagian Terisi</option>
+                      <option value="empty">Belum Ada Jadwal</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="-mx-1 mb-7 overflow-x-auto px-1 pb-2">
+                <div className="flex min-w-max gap-3">
+                  {visibleSchedulePeriods.map((period) => {
+                    const isActive =
+                      activeSchedulePeriod.startKey === period.startKey;
+                    const isComplete = period.status === "complete";
+                    const isPartial = period.status === "partial";
+                    const progressColor = isComplete
+                      ? "bg-forest-700"
+                      : isPartial
+                        ? "bg-amber-500"
+                        : "bg-gray-300";
+                    const cardTone = isComplete
+                      ? "border-forest-100 bg-forest-50/45"
+                      : isPartial
+                        ? "border-amber-100 bg-amber-50/45"
+                        : "border-dashed border-gray-200 bg-gray-50/75";
+
+                    return (
+                      <button
+                        key={period.startKey}
+                        onClick={() => setWeeklyPeriodAnchor(period.startKey)}
+                        className={`min-h-[188px] w-[190px] rounded-[24px] border p-4 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg ${
+                          isActive
+                            ? "scale-[1.03] border-2 border-forest-500 bg-white shadow-[0_22px_46px_rgba(46,125,50,0.18)] ring-4 ring-forest-100/80"
+                            : cardTone
+                        }`}
+                      >
+                        <div className="text-center">
+                          <p className="text-base font-black text-gray-900">
+                            {period.title}
+                          </p>
+                          <p className="mt-1 text-xs font-semibold text-gray-500">
+                            {period.rangeLabel}
+                          </p>
+                        </div>
+                        <div
+                          className={`mx-auto mt-6 flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold ${
+                            isComplete
+                              ? "bg-forest-50 text-forest-800"
+                              : isPartial
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-white text-gray-500"
+                          }`}
+                        >
+                          {isComplete ? (
+                            <CheckCircle2 className="h-4 w-4" />
+                          ) : isPartial ? (
+                            <AlertTriangle className="h-4 w-4" />
+                          ) : (
+                            <CalendarDays className="h-4 w-4" />
+                          )}
+                          {period.statusLabel}
+                        </div>
+                        <div className="mt-6 flex items-center gap-3">
+                          <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-gray-200/80">
+                            <div
+                              className={`h-full rounded-full ${progressColor}`}
+                              style={{ width: `${period.completionPercent}%` }}
+                            />
+                          </div>
+                          <span className="w-12 text-right text-xs font-black text-gray-800">
+                            {period.filledDayCount}/6
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_410px]">
+                <div className="rounded-[28px] border border-gray-100 bg-white p-5 shadow-[0_18px_45px_rgba(36,49,39,0.08)]">
+                  <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <h4 className="text-xl font-black text-gray-900">
+                          Ringkasan {activeSchedulePeriod.title}
+                        </h4>
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-black ${
+                            activeSchedulePeriod.status === "complete"
+                              ? "bg-forest-50 text-forest-800"
+                              : activeSchedulePeriod.status === "partial"
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-gray-100 text-gray-500"
+                          }`}
+                        >
+                          {activeSchedulePeriod.status === "complete"
+                            ? "Lengkap"
+                            : activeSchedulePeriod.status === "partial"
+                              ? "Sebagian Terisi"
+                              : "Belum Ada Jadwal"}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm font-medium text-gray-500">
+                        {activeSchedulePeriod.fullRangeLabel} •{" "}
+                        {activeLocation.name}
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-forest-100 bg-forest-50 px-4 py-2 text-xs font-bold text-forest-800">
+                      Senin - Sabtu
+                    </span>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    {[
+                      {
+                        icon: CalendarDays,
+                        value: `${activeSchedulePeriod.filledDayCount}/6`,
+                        label: "Hari Terjadwal",
+                        note: `${activeSchedulePeriod.completionPercent}% kesiapan`,
+                        tone: "bg-forest-50 text-forest-800",
+                      },
+                      {
+                        icon: UtensilsCrossed,
+                        value: activeSchedulePeriod.uniqueMenuCount,
+                        label: "Menu Digunakan",
+                        note: `${activeSchedulePeriod.menuCount} slot menu`,
+                        tone: "bg-sky-50 text-sky-700",
+                      },
+                      {
+                        icon: Gauge,
+                        value: `${activeSchedulePeriod.akgCompliance}%`,
+                        label: "Kepatuhan AKG",
+                        note: "Rata-rata minggu ini",
+                        tone: "bg-violet-50 text-violet-700",
+                      },
+                      {
+                        icon: Leaf,
+                        value: activeSchedulePeriod.foodWasteRisk,
+                        label: "Risiko Sisa Makanan",
+                        note: "Kategori risiko",
+                        tone: "bg-emerald-50 text-emerald-700",
+                      },
+                    ].map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <div
+                          key={item.label}
+                          className="min-h-[140px] rounded-[22px] border border-gray-100 bg-white p-4 shadow-sm"
+                        >
+                          <div
+                            className={`mb-4 flex h-11 w-11 items-center justify-center rounded-full ${item.tone}`}
+                          >
+                            <Icon className="h-5 w-5" />
+                          </div>
+                          <p className="text-2xl font-black text-gray-900">
+                            {item.value}
+                          </p>
+                          <p className="mt-1 text-sm font-bold text-gray-700">
+                            {item.label}
+                          </p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            {item.note}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-6">
+                    <h5 className="mb-3 text-sm font-black text-gray-900">
+                      Distribusi Hari
+                    </h5>
+                    <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
+                      {activeSchedulePeriod.days.map((day) => {
+                        const ids = getDayMenuIds(
+                          normalizeDayPlan(weeklyPlan[day.dateKey]),
+                        );
+                        const isFilled = ids.length > 0;
+                        const isMissing =
+                          !isFilled && activeSchedulePeriod.status === "partial";
+                        return (
+                          <div
+                            key={day.dateKey}
+                            className={`rounded-[18px] border px-3 py-3 text-center ${
+                              isFilled
+                                ? "border-forest-100 bg-forest-50 text-forest-800"
+                                : isMissing
+                                  ? "border-amber-100 bg-amber-50 text-amber-700"
+                                  : "border-gray-100 bg-gray-50 text-gray-500"
+                            }`}
+                          >
+                            <div className="mx-auto mb-2 flex h-7 w-7 items-center justify-center rounded-full bg-white/80">
+                              {isFilled ? (
+                                <CheckCircle2 className="h-4 w-4" />
+                              ) : isMissing ? (
+                                <AlertTriangle className="h-4 w-4" />
+                              ) : (
+                                <Clock3 className="h-4 w-4" />
+                              )}
+                            </div>
+                            <p className="text-xs font-black">
+                              {day.dayLabel.slice(0, 3)}
+                            </p>
+                            <p className="mt-1 text-xs font-bold">
+                              {isFilled ? "Terisi" : isMissing ? "Belum" : "Kosong"}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-5 flex flex-wrap gap-5 text-xs font-semibold text-gray-600">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-full bg-forest-600" />
+                        Terisi
+                      </span>
+                      <span className="inline-flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-full bg-amber-400" />
+                        Sebagian / Belum
+                      </span>
+                      <span className="inline-flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-full bg-gray-300" />
+                        Kosong
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-5">
+                  <div className="rounded-[28px] border border-forest-100 bg-linear-to-br from-forest-50 via-emerald-50 to-white p-5 shadow-[0_18px_45px_rgba(46,125,50,0.10)]">
+                    <div className="mb-4 flex items-center gap-3">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-forest-800 shadow-sm">
+                        <Sparkles className="h-5 w-5" />
+                      </div>
+                      <h4 className="text-base font-black text-forest-950">
+                        Insight AI
+                      </h4>
+                    </div>
+                    <ul className="space-y-2 text-sm leading-6 text-gray-700">
+                      <li>
+                        {activeSchedulePeriod.missingLabels.length} hari belum
+                        memiliki menu
+                      </li>
+                      <li>
+                        Kepatuhan AKG minggu ini berada di{" "}
+                        {activeSchedulePeriod.akgCompliance}%
+                      </li>
+                      <li>
+                        Distribusi menu{" "}
+                        {activeSchedulePeriod.status === "complete"
+                          ? "sudah merata"
+                          : "belum merata"}
+                      </li>
+                      <li>
+                        Disarankan menjaga konsistensi protein hewani di hari
+                        operasional
+                      </li>
+                    </ul>
+                    <button className="mt-5 inline-flex items-center gap-2 rounded-[16px] border border-forest-100 bg-white px-4 py-3 text-sm font-black text-forest-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                      Lihat Rekomendasi <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <div className="rounded-[24px] border border-gray-100 bg-white p-5 shadow-sm">
+                    <div className="mb-3 flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-amber-700">
+                        <Info className="h-5 w-5" />
+                      </div>
+                      <h4 className="text-base font-black text-gray-900">
+                        Catatan
+                      </h4>
+                    </div>
+                    <p className="text-sm leading-6 text-gray-600">
+                      Pastikan seluruh hari memiliki menu untuk menjaga
+                      konsistensi distribusi bahan baku dan pemenuhan gizi.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <button
-              onClick={() => setShowSchedulePeriodModal(false)}
-              className="mt-5 w-full rounded-[18px] bg-forest-800 px-4 py-3 text-sm font-semibold text-white transition hover:bg-forest-900"
-            >
-              Terapkan
-            </button>
+            <div className="flex flex-col gap-3 border-t border-gray-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+              <p className="text-xs font-semibold text-gray-500">
+                Periode aktif: {activeSchedulePeriod.fullRangeLabel}
+              </p>
+              <div className="flex gap-3 sm:justify-end">
+                <button
+                  onClick={() => setShowSchedulePeriodModal(false)}
+                  className="btn-secondary min-w-32"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={() => setShowSchedulePeriodModal(false)}
+                  className="btn-primary min-w-44"
+                >
+                  Pilih Minggu Ini
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

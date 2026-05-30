@@ -94,10 +94,11 @@ export default function AIAnalysisPanel({
   };
 
   useEffect(() => {
-    setAnalysis(null);
+    const cached = getCachedAnalysis(menuId);
+    setAnalysis(cached);
     setError(null);
-    setHasAnalyzed(false);
-    setIsFromCache(false);
+    setHasAnalyzed(Boolean(cached));
+    setIsFromCache(Boolean(cached));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuId]);
 
@@ -219,7 +220,7 @@ export default function AIAnalysisPanel({
                 Analisis Gizi AI
               </p>
               <p className="mt-1 text-xs leading-6 text-ink-400">
-                Tekan tombol untuk menjalankan analisis {menuNama}.
+                Belum ada analisis untuk {menuNama}.
               </p>
             </div>
           </div>
