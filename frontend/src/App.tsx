@@ -4,6 +4,7 @@ import { Bell, MoonStar, Search, SunMedium } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
+import WeeklySchedulePage from "./pages/WeeklySchedulePage";
 import MenuCatalogPage from "./pages/MenuCatalogPage";
 import RecipeBuilderPage from "./pages/RecipeBuilderPage";
 import AILabPage from "./pages/AILabPage";
@@ -37,6 +38,11 @@ const PAGE_META: Record<
     label: "Dashboard",
     description:
       "Ringkasan operasional menu, status nutrisi, dan rencana mingguan.",
+  },
+  "weekly-schedule": {
+    label: "Jadwal Mingguan",
+    description:
+      "Kelola jadwal mingguan dan assignment menu per hari untuk tiap lokasi distribusi.",
   },
   "menu-catalog": {
     label: "Menu Catalog",
@@ -198,6 +204,8 @@ export default function App() {
     switch (activePage) {
       case "dashboard":
         return <DashboardPage onNavigate={setActivePage} />;
+      case "weekly-schedule":
+        return <WeeklySchedulePage onNavigate={setActivePage} />;
       case "menu-catalog":
         return <MenuCatalogPage onNavigate={setActivePage} />;
       case "recipe-builder":

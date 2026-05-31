@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import { motion } from "framer-motion";
 import {
+  CalendarDays,
   ChefHat,
   LayoutDashboard,
   Leaf,
@@ -23,6 +24,7 @@ const NAV_ITEMS: Array<{
   Icon: ComponentType<{ className?: string }>;
 }> = [
   { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
+  { id: "weekly-schedule", label: "Jadwal Mingguan", Icon: CalendarDays },
   { id: "menu-catalog", label: "Menu Catalog", Icon: UtensilsCrossed },
   { id: "recipe-builder", label: "Recipe Builder", Icon: ChefHat },
 ];

@@ -192,6 +192,7 @@ export interface GeneratedMenu {
 
 export type PageView =
   | "dashboard"
+  | "weekly-schedule"
   | "menu-catalog"
   | "recipe-builder"
   | "ai-lab"

@@ -90,12 +90,7 @@ async function readJsonResponse<T>(res: Response, fallbackMessage: string) {
   return data as T;
 }
 
-type Kelompok =
-  | "siswa"
-  | "balita"
-  | "ibu_hamil"
-  | "ibu_menyusui"
-  | "lansia";
+type Kelompok = "siswa" | "balita" | "ibu_hamil" | "ibu_menyusui" | "lansia";
 const STANDAR: Record<
   Kelompok,
   {
@@ -133,7 +128,10 @@ const STANDAR: Record<
 
 const AKG_MICRO_TARGETS: Record<
   Kelompok,
-  Record<string, { label: string; target: number; unit: string; limitOnly?: boolean }>
+  Record<
+    string,
+    { label: string; target: number; unit: string; limitOnly?: boolean }
+  >
 > = {
   siswa: {
     serat: { label: "Serat", target: 8, unit: "g" },
@@ -441,7 +439,10 @@ function formatPeriodRange(start: Date, end: Date, includeYear = false) {
   return `${startLabel} - ${endLabel}`;
 }
 
-function buildOperationalWeek(startDate: Date, index: number): WeeklyPeriodOption {
+function buildOperationalWeek(
+  startDate: Date,
+  index: number,
+): WeeklyPeriodOption {
   const start = new Date(startDate);
   const end = addCalendarDays(start, 5);
   const todayKey = toDateKey(new Date());
@@ -653,7 +654,8 @@ function CompositionDonut({
           strokeWidth="12"
         />
         {segments.map((segment) => {
-          const length = total > 0 ? (segment.value / total) * circumference : 0;
+          const length =
+            total > 0 ? (segment.value / total) * circumference : 0;
           const node = (
             <circle
               key={segment.key}
@@ -684,6 +686,7 @@ function CompositionDonut({
 
 interface DashboardPageProps {
   onNavigate: (p: PageView) => void;
+  mode?: "full" | "weekly";
 }
 
 interface SummaryWidget {
@@ -792,7 +795,52 @@ function getLocationTargetLabel(location: DistributionLocation) {
   return location.recipients.map((recipient) => recipient.target).join(" + ");
 }
 
-export default function DashboardPage({ onNavigate }: DashboardPageProps) {
+function parseTargetCount(raw: string) {
+  const match = String(raw || "").match(/\d+/g);
+  if (!match) return 0;
+  return Number(match.join("")) || 0;
+}
+
+function evaluateMenuAkgStatus(menu: Menu) {
+  const targetMap: Record<
+    Menu["kategori"],
+    { kalori: number; protein: number; karbo: number; lemak: number }
+  > = {
+    Siswa: STANDAR.siswa,
+    Balita: STANDAR.balita,
+    "Ibu Hamil": STANDAR.ibu_hamil,
+  };
+
+  const target = targetMap[menu.kategori] || STANDAR.siswa;
+  const kalori = Number(menu.kalori || 0);
+  const protein = Number(menu.protein || 0);
+  const karbo = Number(menu.karbohidrat || 0);
+  const lemak = Number(menu.lemak || 0);
+
+  if (kalori <= 0 && protein <= 0 && karbo <= 0 && lemak <= 0) {
+    return false;
+  }
+
+  const inRange = (
+    value: number,
+    ref: number,
+    minRatio = 0.85,
+    maxRatio = 1.2,
+  ) => value >= ref * minRatio && value <= ref * maxRatio;
+
+  return (
+    inRange(kalori, target.kalori) &&
+    inRange(protein, target.protein) &&
+    inRange(karbo, target.karbo) &&
+    inRange(lemak, target.lemak)
+  );
+}
+
+export default function DashboardPage({
+  onNavigate,
+  mode = "full",
+}: DashboardPageProps) {
+  const isWeeklyOnly = mode === "weekly";
   const [menus, setMenus] = useState<Menu[]>([]);
   const [stats, setStats] = useState<MenuStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -851,10 +899,11 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const activeLocation =
     distributionLocations.find(
       (location) => location.id === activeLocationId,
-    ) || distributionLocations[0] || EMPTY_DISTRIBUTION_LOCATION;
+    ) ||
+    distributionLocations[0] ||
+    EMPTY_DISTRIBUTION_LOCATION;
   const weeklyPlan = weeklyPlanByLocation[activeLocationId] || {};
   const activeLocationRecipients = getLocationRecipientLabel(activeLocation);
-  const activeLocationTargets = getLocationTargetLabel(activeLocation);
 
   useEffect(() => {
     Promise.all([
@@ -1021,13 +1070,14 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       const normalizedByLocation: WeeklyPlanByLocation = {};
 
       if (data.plans && typeof data.plans === "object") {
-        Object.entries(data.plans as Record<string, Record<string, unknown>>)
-          .forEach(([locationId, plan]) => {
-            normalizedByLocation[locationId] = {};
-            Object.entries(plan || {}).forEach(([dateKey, day]) => {
-              normalizedByLocation[locationId][dateKey] = normalizeDayPlan(day);
-            });
+        Object.entries(
+          data.plans as Record<string, Record<string, unknown>>,
+        ).forEach(([locationId, plan]) => {
+          normalizedByLocation[locationId] = {};
+          Object.entries(plan || {}).forEach(([dateKey, day]) => {
+            normalizedByLocation[locationId][dateKey] = normalizeDayPlan(day);
           });
+        });
       }
 
       setWeeklyPlanByLocation(normalizedByLocation);
@@ -1082,9 +1132,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
           savedScheduleMap,
         }),
       })
-        .then((res) =>
-          readJsonResponse(res, "Gagal menyimpan jadwal mingguan"),
-        )
+        .then((res) => readJsonResponse(res, "Gagal menyimpan jadwal mingguan"))
         .catch((error) => {
           console.error("Gagal menyimpan jadwal ke database:", error);
         });
@@ -1113,7 +1161,9 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         const dayMenuIds = period.dayKeys.map((dateKey) =>
           getDayMenuIds(normalizeDayPlan(weeklyPlan[dateKey])),
         );
-        const filledDayCount = dayMenuIds.filter((ids) => ids.length > 0).length;
+        const filledDayCount = dayMenuIds.filter(
+          (ids) => ids.length > 0,
+        ).length;
         const allMenuIds = dayMenuIds.flat();
         const uniqueMenuIds = Array.from(new Set(allMenuIds));
         const periodMenus = uniqueMenuIds
@@ -1141,7 +1191,10 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
             ? Math.min(
                 125,
                 Math.round(
-                  (ratios.reduce((sum, value) => sum + Math.min(value, 1.15), 0) /
+                  (ratios.reduce(
+                    (sum, value) => sum + Math.min(value, 1.15),
+                    0,
+                  ) /
                     ratios.length) *
                     100,
                 ),
@@ -1271,10 +1324,10 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       );
       setPlateAiAnalysis(data as AIAnalysisResult);
     } catch (err: unknown) {
-        setPlateAiError(
-          err instanceof Error ? err.message : "Analisis AI gagal diproses",
-        );
-        setPlateAiAnalysis(null);
+      setPlateAiError(
+        err instanceof Error ? err.message : "Analisis AI gagal diproses",
+      );
+      setPlateAiAnalysis(null);
     } finally {
       setPlateAiLoading(false);
     }
@@ -1488,7 +1541,8 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       unit: "g",
     },
   ].map((row) => {
-    const percent = row.target > 0 ? Math.round((row.val / row.target) * 100) : 0;
+    const percent =
+      row.target > 0 ? Math.round((row.val / row.target) * 100) : 0;
     return {
       ...row,
       percent,
@@ -1665,7 +1719,9 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const shiftScheduleMonth = (offset: number) => {
     const current = dateFromKey(weeklyPeriodAnchor);
     setWeeklyPeriodAnchor(
-      toDateKey(new Date(current.getFullYear(), current.getMonth() + offset, 1)),
+      toDateKey(
+        new Date(current.getFullYear(), current.getMonth() + offset, 1),
+      ),
     );
   };
 
@@ -1720,17 +1776,86 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     if (!stats) return [];
 
     const totalMenus = Number(stats.total_menus || 0);
+    const activeMenus = Number(stats.active_menus || 0);
     const locationCount = distributionLocations.length;
-    const savedLocationCount = Object.keys(savedScheduleMap).length;
+    const latestLocation =
+      distributionLocations[distributionLocations.length - 1];
+    const totalBeneficiaries = distributionLocations.reduce(
+      (sum, location) =>
+        sum +
+        location.recipients.reduce(
+          (recipientSum, recipient) =>
+            recipientSum + parseTargetCount(recipient.target),
+          0,
+        ),
+      0,
+    );
+    const siswaCount = distributionLocations.reduce(
+      (sum, location) =>
+        sum +
+        location.recipients
+          .filter((recipient) =>
+            recipient.label.toLowerCase().includes("siswa"),
+          )
+          .reduce(
+            (recipientSum, recipient) =>
+              recipientSum + parseTargetCount(recipient.target),
+            0,
+          ),
+      0,
+    );
+    const balitaCount = distributionLocations.reduce(
+      (sum, location) =>
+        sum +
+        location.recipients
+          .filter((recipient) =>
+            recipient.label.toLowerCase().includes("balita"),
+          )
+          .reduce(
+            (recipientSum, recipient) =>
+              recipientSum + parseTargetCount(recipient.target),
+            0,
+          ),
+      0,
+    );
+    const ibuHamilCount = distributionLocations.reduce(
+      (sum, location) =>
+        sum +
+        location.recipients
+          .filter((recipient) =>
+            recipient.label.toLowerCase().includes("ibu hamil"),
+          )
+          .reduce(
+            (recipientSum, recipient) =>
+              recipientSum + parseTargetCount(recipient.target),
+            0,
+          ),
+      0,
+    );
+
+    const scheduledLocationCount = distributionLocations.filter((location) => {
+      const locationPlan = weeklyPlanByLocation[location.id] || {};
+      return Object.values(locationPlan).some(
+        (day) => getDayMenuIds(normalizeDayPlan(day)).length > 0,
+      );
+    }).length;
+
+    const completionPercent =
+      locationCount > 0
+        ? Math.round((scheduledLocationCount / locationCount) * 100)
+        : 0;
+
+    const menuMeetAkgCount = menus.filter(evaluateMenuAkgStatus).length;
+    const menuNeedEvalCount = Math.max(0, totalMenus - menuMeetAkgCount);
 
     return [
       {
         title: "Total Menu",
-        value: totalMenus,
-        subtitle: "Seluruh menu tercatat",
+        value: `${activeMenus}/${totalMenus}`,
+        subtitle: "Aktif / total menu",
         insight:
           totalMenus > 0
-            ? "Basis variasi menu tersedia."
+            ? "Data menu live dari database."
             : "Tambahkan menu pertama.",
         gradient: "from-forest-950 via-forest-900 to-forest-700",
         iconBg: "bg-white/10",
@@ -1740,44 +1865,50 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       {
         title: "Lokasi Distribusi",
         value: locationCount,
-        subtitle: activeLocation.name,
-        insight: `${activeLocationRecipients} - ${activeLocationTargets}`,
+        subtitle: latestLocation?.name || "Belum ada lokasi",
+        insight: `${scheduledLocationCount} lokasi sudah punya jadwal`,
         gradient: "from-[#ffffff] to-[#f7faf7]",
         iconBg: "bg-forest-100",
         icon: Users,
         watermarkColor: "text-forest-100",
       },
       {
-        title: "Jadwal Tersimpan",
-        value: `${savedLocationCount}/${locationCount}`,
-        subtitle: "Lokasi sudah dijadwalkan",
-        insight: activeLocationSaved
-          ? "Lokasi aktif sudah tersimpan."
-          : "Lokasi aktif belum disimpan.",
+        title: "Penerima Manfaat",
+        value: totalBeneficiaries,
+        subtitle: "Total penerima aktif",
+        insight: `Siswa ${siswaCount}, Balita ${balitaCount}, Ibu Hamil ${ibuHamilCount}`,
+        gradient: "from-[#ffffff] to-[#f7faf7]",
+        iconBg: "bg-forest-100",
+        icon: HeartPulse,
+        watermarkColor: "text-forest-100",
+      },
+      {
+        title: "Jadwal Aktif",
+        value: `${scheduledLocationCount}/${locationCount}`,
+        subtitle: "Lokasi terjadwal",
+        insight: `Completion ${completionPercent}%`,
         gradient: "from-[#ffffff] to-[#f7faf7]",
         iconBg: "bg-forest-100",
         icon: CheckCircle2,
         watermarkColor: "text-forest-100",
       },
       {
-        title: "Kategori MBG",
-        value: "5",
-        subtitle: "Siswa, Balita, Ibu Hamil",
-        insight: "Segmentasi porsi tetap terjaga.",
+        title: "Status Menu",
+        value: `${menuMeetAkgCount}/${totalMenus}`,
+        subtitle: "Memenuhi target AKG",
+        insight: `${menuNeedEvalCount} menu perlu evaluasi`,
         gradient: "from-[#ffffff] to-[#f7faf7]",
         iconBg: "bg-forest-100",
-        icon: Users,
+        icon: Gauge,
         watermarkColor: "text-forest-100",
       },
     ];
   }, [
-    activeLocation.name,
-    activeLocationRecipients,
-    activeLocationSaved,
-    activeLocationTargets,
     distributionLocations.length,
-    savedScheduleMap,
+    distributionLocations,
+    menus,
     stats,
+    weeklyPlanByLocation,
   ]);
 
   const clearDragGhost = () => {
@@ -1878,551 +2009,392 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       transition={{ duration: 0.28, ease: "easeOut" }}
       className="page-shell space-y-6"
     >
-      <div className="page-header">
-        <div>
-          <span className="soft-badge">Operations Overview</span>
-          <h1 className="page-title mt-4">Dashboard MBG</h1>
-          <p className="page-subtitle">
-            Pantau menu, evaluasi nutrisi, dan susun jadwal mingguan dalam satu
-            workspace yang lebih lega dan fokus.
-          </p>
-        </div>
-        <div className="card min-w-[220px] rounded-[30px] p-4 sm:p-5">
-          <div className="flex items-start justify-between gap-4">
+      {!isWeeklyOnly && (
+        <>
+          <div className="page-header">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
-                Tanggal Hari Ini
+              <span className="soft-badge">Operations Overview</span>
+              <h1 className="page-title mt-4">Dashboard MBG</h1>
+              <p className="page-subtitle">
+                Pantau menu, evaluasi nutrisi, dan susun jadwal mingguan dalam
+                satu workspace yang lebih lega dan fokus.
               </p>
-              <p className="mt-2 text-5xl font-black leading-none text-forest-900">
-                {todayDateNumber}
-              </p>
-              <p className="mt-2 text-sm font-semibold text-ink-700">
-                {todayMonthYear}
-              </p>
-              <p className="mt-1 text-xs text-ink-400">{today}</p>
             </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-[20px] bg-forest-50 text-forest-800">
-              <CalendarDays className="h-5 w-5" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {summaryWidgets.map((widget, idx) => {
-          const Icon = widget.icon;
-          const isPrimary = idx === 0;
-          return (
-            <motion.div
-              key={widget.title}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.06 }}
-              className={`relative cursor-default overflow-hidden rounded-[30px] border p-6 transition-all hover:-translate-y-1 ${
-                isPrimary
-                  ? `bg-linear-to-br ${widget.gradient} border-white/10 text-white shadow-[0_24px_54px_rgba(23,59,35,0.22)]`
-                  : `bg-linear-to-br ${widget.gradient} border-ink-100 text-ink-700 shadow-[0_16px_36px_rgba(36,49,39,0.07)]`
-              }`}
-            >
-              <Icon
-                className={`pointer-events-none absolute -bottom-4 -right-4 h-24 w-24 ${widget.watermarkColor}`}
-              />
-              <div
-                className={`absolute right-0 top-0 h-32 w-32 translate-x-1/2 -translate-y-1/2 rounded-full ${
-                  isPrimary ? "bg-white/5" : "bg-forest-50"
-                }`}
-              />
-
-              <div className="relative z-10">
-                <div className="mb-3 flex items-center justify-between">
-                  <p
-                    className={`text-xs font-semibold uppercase tracking-wider ${
-                      isPrimary ? "text-white/70" : "text-ink-400"
-                    }`}
-                  >
-                    {widget.title}
-                  </p>
-                  <div className={`${widget.iconBg} rounded-xl p-2`}>
-                    <Icon
-                      className={`h-4 w-4 ${isPrimary ? "text-white" : "text-forest-800"}`}
-                    />
-                  </div>
-                </div>
-                <p className="mb-1 text-3xl font-black leading-tight">
-                  {widget.value}
-                </p>
-                <p
-                  className={`text-sm font-medium leading-5 ${
-                    isPrimary ? "text-white/60" : "text-ink-400"
-                  }`}
-                >
-                  {widget.subtitle}
-                </p>
-                <p
-                  className={`mt-3 border-t pt-3 text-xs font-semibold leading-5 ${
-                    isPrimary
-                      ? "border-white/10 text-white/72"
-                      : "border-forest-100 text-forest-800"
-                  }`}
-                >
-                  {widget.insight}
-                </p>
-              </div>
-            </motion.div>
-          );
-        })}
-      </div>
-
-      <div className="grid grid-cols-1 gap-4">
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
-          className="card overflow-hidden rounded-[34px] border border-ink-100/60 bg-white/95 shadow-sm"
-        >
-          <div className="bg-[linear-gradient(135deg,#ffffff_0%,#f7fbf7_55%,#eef8ef_100%)] p-4 sm:p-6">
-            <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-              <div>
-                <span className="inline-flex items-center gap-2 rounded-full border border-forest-100 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-forest-800 shadow-sm">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Piringku vs AKG 2019
-                </span>
-                <h2 className="mt-3 text-2xl font-black tracking-normal text-ink-700">
-                  Monitor Piringku vs AKG 2019
-                </h2>
-                <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-400">
-                  Gabungkan satu atau beberapa menu, lalu bandingkan total
-                  nutrisi terhadap target AKG.
-                </p>
-              </div>
-              <div className="rounded-[24px] border border-forest-100 bg-white/90 px-4 py-3 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-forest-50 text-forest-800">
-                    <Target className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-400">
-                      Target User
-                    </p>
-                    <p className="text-sm font-bold text-ink-700">
-                      {STANDAR[kelompok].label}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
-              {TARGET_TABS.map((tab) => {
-                const Icon = tab.icon;
-                return (
-                  <button
-                    key={tab.key}
-                    onClick={() => setKelompok(tab.key)}
-                    data-active={kelompok === tab.key}
-                    className="flex min-h-14 items-center justify-center gap-2 rounded-[20px] border border-ink-100 bg-white px-3 py-3 text-xs font-bold text-ink-500 shadow-sm transition hover:border-forest-200 hover:bg-forest-50 data-[active=true]:border-forest-100 data-[active=true]:bg-forest-50 data-[active=true]:text-forest-900"
-                  >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    <span className="truncate">{STANDAR[tab.key].label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="space-y-5 p-4 sm:p-6">
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto_auto]">
-              <button
-                onClick={() => setShowPlateMenuModal(true)}
-                className="flex min-h-14 items-center justify-between gap-3 rounded-[22px] border border-ink-100 bg-white px-4 py-3 text-left text-sm text-gray-700 shadow-sm transition hover:border-forest-200 hover:bg-forest-50"
-              >
-                <span className="min-w-0 truncate font-semibold">
-                  {selectedMenuId
-                    ? sanitizeMenuName(
-                        menuLookup.get(selectedMenuId)?.nama || "Pilih menu",
-                      )
-                    : "Cari menu untuk mulai analisis piringku"}
-                </span>
-                <Search className="h-4 w-4 shrink-0 text-forest-700" />
-              </button>
-              <button
-                onClick={() => selectedMenuId && addMenu(selectedMenuId)}
-                disabled={!selectedMenuId}
-                className="btn-primary inline-flex min-h-14 items-center justify-center gap-2 px-6 text-sm disabled:opacity-50"
-              >
-                <Plus className="h-4 w-4" />
-                Tambah ke Piringku
-              </button>
-              <button
-                onClick={runPlateAnalysis}
-                disabled={plateMenuIds.length === 0 || plateAiLoading}
-                className="inline-flex min-h-14 items-center justify-center gap-2 rounded-[22px] border border-forest-700 bg-forest-800 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-forest-900 disabled:opacity-50"
-              >
-                {plateAiLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
-                )}
-                Analisis AI
-              </button>
-            </div>
-
-            <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                const id = Number(e.dataTransfer.getData("menu-id"));
-                if (id) addMenu(id);
-              }}
-              className="rounded-[30px] border border-forest-100 bg-[linear-gradient(180deg,#ffffff_0%,#f7fbf7_100%)] p-3 shadow-sm sm:p-4"
-            >
-              {piringkuMenus.length === 0 ? (
-                <div className="grid min-h-72 place-items-center rounded-[26px] border border-dashed border-forest-200 bg-white/70 p-6 text-center">
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-[24px] bg-forest-50 text-forest-800">
-                    <ChefHat className="h-8 w-8" />
-                  </div>
-                  <div className="mt-4 max-w-md">
-                    <h3 className="text-lg font-bold text-ink-700">
-                      Pilih menu untuk mulai analisis piringku
-                    </h3>
-                    <p className="mt-2 text-sm leading-6 text-ink-400">
-                      Belum ada data nutrisi untuk ditampilkan. Tambahkan menu
-                      atau seret kartu dari daftar bawah.
-                    </p>
-                  </div>
-                  <div className="mt-6 grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-3">
-                    {[0, 1, 2].map((item) => (
-                      <div
-                        key={item}
-                        className="nutrition-shimmer h-24 rounded-[22px] border border-ink-100 bg-white"
-                      />
-                    ))}
-                  </div>
-                </div>
-              ) : (
+            <div className="card min-w-[220px] rounded-[30px] p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
-                        Menu Terpilih
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
+                    Tanggal Hari Ini
+                  </p>
+                  <p className="mt-2 text-5xl font-black leading-none text-forest-900">
+                    {todayDateNumber}
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-ink-700">
+                    {todayMonthYear}
+                  </p>
+                  <p className="mt-1 text-xs text-ink-400">{today}</p>
+                </div>
+                <div className="flex h-12 w-12 items-center justify-center rounded-[20px] bg-forest-50 text-forest-800">
+                  <CalendarDays className="h-5 w-5" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            {summaryWidgets.map((widget, idx) => {
+              const Icon = widget.icon;
+              const isPrimary = idx === 0;
+              return (
+                <motion.div
+                  key={widget.title}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.06 }}
+                  className={`relative cursor-default overflow-hidden rounded-[30px] border p-6 transition-all hover:-translate-y-1 ${
+                    isPrimary
+                      ? `bg-linear-to-br ${widget.gradient} border-white/10 text-white shadow-[0_24px_54px_rgba(23,59,35,0.22)]`
+                      : `bg-linear-to-br ${widget.gradient} border-ink-100 text-ink-700 shadow-[0_16px_36px_rgba(36,49,39,0.07)]`
+                  }`}
+                >
+                  <Icon
+                    className={`pointer-events-none absolute -bottom-4 -right-4 h-24 w-24 ${widget.watermarkColor}`}
+                  />
+                  <div
+                    className={`absolute right-0 top-0 h-32 w-32 translate-x-1/2 -translate-y-1/2 rounded-full ${
+                      isPrimary ? "bg-white/5" : "bg-forest-50"
+                    }`}
+                  />
+
+                  <div className="relative z-10">
+                    <div className="mb-3 flex items-center justify-between">
+                      <p
+                        className={`text-xs font-semibold uppercase tracking-wider ${
+                          isPrimary ? "text-white/70" : "text-ink-400"
+                        }`}
+                      >
+                        {widget.title}
                       </p>
-                      <h3 className="mt-1 text-xl font-black text-ink-700">
-                        {piringkuMenus.length} widget menu aktif
-                      </h3>
+                      <div className={`${widget.iconBg} rounded-xl p-2`}>
+                        <Icon
+                          className={`h-4 w-4 ${isPrimary ? "text-white" : "text-forest-800"}`}
+                        />
+                      </div>
                     </div>
-                    <span
-                      className={`w-fit rounded-full px-3 py-1.5 text-xs font-bold ${plateAkgStatus.badgeClass}`}
+                    <p className="mb-1 text-3xl font-black leading-tight">
+                      {widget.value}
+                    </p>
+                    <p
+                      className={`text-sm font-medium leading-5 ${
+                        isPrimary ? "text-white/60" : "text-ink-400"
+                      }`}
                     >
-                      Total Piringku: {plateAkgPercent}% -{" "}
-                      {plateAkgStatus.label}
-                    </span>
+                      {widget.subtitle}
+                    </p>
+                    <p
+                      className={`mt-3 border-t pt-3 text-xs font-semibold leading-5 ${
+                        isPrimary
+                          ? "border-white/10 text-white/72"
+                          : "border-forest-100 text-forest-800"
+                      }`}
+                    >
+                      {widget.insight}
+                    </p>
                   </div>
+                </motion.div>
+              );
+            })}
+          </div>
 
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    {piringkuMenus.map((menu) => {
-                      const imageUrl = resolveMenuImageUrl(menu.gambar_url);
-                      const displayName =
-                        sanitizeMenuName(menu.nama) || menu.nama;
-                      const menuMacroTotal =
-                        Number(menu.protein || 0) +
-                        Number(menu.karbohidrat || 0) +
-                        Number(menu.lemak || 0);
-                      const menuPercent = Math.round(
-                        (Number(menu.kalori || 0) /
-                          STANDAR[kelompok].kalori) *
-                          100,
-                      );
-                      const menuStatus = getAkgStatus(menuPercent);
-                      const menuSlices = [
-                        {
-                          key: "karbo",
-                          label: "Karbohidrat",
-                          value: Number(menu.karbohidrat || 0),
-                          color: "#8b5cf6",
-                        },
-                        {
-                          key: "protein",
-                          label: "Protein",
-                          value: Number(menu.protein || 0),
-                          color: "#10b981",
-                        },
-                        {
-                          key: "lemak",
-                          label: "Lemak",
-                          value: Number(menu.lemak || 0),
-                          color: "#f59e0b",
-                        },
-                      ].filter((item) => item.value > 0);
-
-                      return (
-                        <div
-                          key={menu.id}
-                          className="grid overflow-hidden rounded-[28px] border border-ink-100 bg-white shadow-sm sm:grid-cols-[180px_1fr]"
-                        >
-                          <div className="relative min-h-52 bg-forest-50 sm:min-h-full">
-                            {imageUrl ? (
-                              <img
-                                src={imageUrl}
-                                alt={displayName}
-                                className="h-full min-h-52 w-full object-cover"
-                              />
-                            ) : (
-                              <div className="flex h-full min-h-52 items-center justify-center text-forest-700">
-                                <ChefHat className="h-12 w-12" />
-                              </div>
-                            )}
-                            <div className="absolute left-3 top-3 rounded-full bg-white/92 px-3 py-1.5 text-xs font-bold text-forest-900 shadow-sm">
-                              1 Porsi
-                            </div>
-                          </div>
-
-                          <div className="flex min-w-0 flex-col gap-4 p-4">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-400">
-                                  Target {STANDAR[kelompok].label}
-                                </p>
-                                <h4 className="mt-1 line-clamp-2 text-lg font-black text-ink-700">
-                                  {displayName}
-                                </h4>
-                              </div>
-                              <button
-                                onClick={() => removeMenu(menu.id)}
-                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100"
-                                title="Hapus dari Piringku"
-                              >
-                                <X className="h-4 w-4" />
-                              </button>
-                            </div>
-
-                            <div className="grid grid-cols-3 gap-2">
-                              {[
-                                [`${Math.round(Number(menu.kalori || 0))}`, "kkal"],
-                                [
-                                  `${plateIngredientCountMap[menu.id] || 0}`,
-                                  "komponen",
-                                ],
-                                [`${menuPercent}%`, "AKG"],
-                              ].map(([value, label]) => (
-                                <div
-                                  key={label}
-                                  className="rounded-[18px] border border-ink-100 bg-forest-25 px-3 py-2"
-                                >
-                                  <p className="text-sm font-black text-ink-700">
-                                    {value}
-                                  </p>
-                                  <p className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-ink-400">
-                                    {label}
-                                  </p>
-                                </div>
-                              ))}
-                            </div>
-
-                            <span
-                              className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${menuStatus.badgeClass}`}
-                            >
-                              {menuStatus.label}
-                            </span>
-
-                            <div className="space-y-2">
-                              {menuSlices.map((slice) => {
-                                const percent =
-                                  menuMacroTotal > 0
-                                    ? Math.round(
-                                        (slice.value / menuMacroTotal) * 100,
-                                      )
-                                    : 0;
-                                return (
-                                  <div
-                                    key={slice.key}
-                                    className="flex items-center justify-between gap-3 text-xs"
-                                  >
-                                    <div className="flex min-w-0 items-center gap-2">
-                                      <span
-                                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                                        style={{ backgroundColor: slice.color }}
-                                      />
-                                      <span className="truncate font-bold text-ink-700">
-                                        {slice.label}
-                                      </span>
-                                    </div>
-                                    <span className="font-semibold text-ink-400">
-                                      {Math.round(slice.value)} g - {percent}%
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+          <div className="grid grid-cols-1 gap-4">
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
+              className="card overflow-hidden rounded-[34px] border border-ink-100/60 bg-white/95 shadow-sm"
+            >
+              <div className="bg-[linear-gradient(135deg,#ffffff_0%,#f7fbf7_55%,#eef8ef_100%)] p-4 sm:p-6">
+                <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div>
+                    <span className="inline-flex items-center gap-2 rounded-full border border-forest-100 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-forest-800 shadow-sm">
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Piringku vs AKG 2019
+                    </span>
+                    <h2 className="mt-3 text-2xl font-black tracking-normal text-ink-700">
+                      Monitor Piringku vs AKG 2019
+                    </h2>
+                    <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-400">
+                      Gabungkan satu atau beberapa menu, lalu bandingkan total
+                      nutrisi terhadap target AKG.
+                    </p>
+                  </div>
+                  <div className="rounded-[24px] border border-forest-100 bg-white/90 px-4 py-3 shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-forest-50 text-forest-800">
+                        <Target className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-400">
+                          Target User
+                        </p>
+                        <p className="text-sm font-bold text-ink-700">
+                          {STANDAR[kelompok].label}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              )}
-            </div>
 
-            {piringkuMenus.length > 0 && (
-              <>
-                <div className="grid grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-                  <div className="rounded-[30px] border border-ink-100 bg-white p-5 shadow-sm">
-                    <div className="mb-4 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
-                          Ringkasan AKG Harian
-                        </p>
-                        <h3 className="mt-1 text-lg font-black text-ink-700">
-                          Capaian Total Piringku
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+                  {TARGET_TABS.map((tab) => {
+                    const Icon = tab.icon;
+                    return (
+                      <button
+                        key={tab.key}
+                        onClick={() => setKelompok(tab.key)}
+                        data-active={kelompok === tab.key}
+                        className="flex min-h-14 items-center justify-center gap-2 rounded-[20px] border border-ink-100 bg-white px-3 py-3 text-xs font-bold text-ink-500 shadow-sm transition hover:border-forest-200 hover:bg-forest-50 data-[active=true]:border-forest-100 data-[active=true]:bg-forest-50 data-[active=true]:text-forest-900"
+                      >
+                        <Icon className="h-4 w-4 shrink-0" />
+                        <span className="truncate">
+                          {STANDAR[tab.key].label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-5 p-4 sm:p-6">
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto_auto]">
+                  <button
+                    onClick={() => setShowPlateMenuModal(true)}
+                    className="flex min-h-14 items-center justify-between gap-3 rounded-[22px] border border-ink-100 bg-white px-4 py-3 text-left text-sm text-gray-700 shadow-sm transition hover:border-forest-200 hover:bg-forest-50"
+                  >
+                    <span className="min-w-0 truncate font-semibold">
+                      {selectedMenuId
+                        ? sanitizeMenuName(
+                            menuLookup.get(selectedMenuId)?.nama ||
+                              "Pilih menu",
+                          )
+                        : "Cari menu untuk mulai analisis piringku"}
+                    </span>
+                    <Search className="h-4 w-4 shrink-0 text-forest-700" />
+                  </button>
+                  <button
+                    onClick={() => selectedMenuId && addMenu(selectedMenuId)}
+                    disabled={!selectedMenuId}
+                    className="btn-primary inline-flex min-h-14 items-center justify-center gap-2 px-6 text-sm disabled:opacity-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Tambah ke Piringku
+                  </button>
+                  <button
+                    onClick={runPlateAnalysis}
+                    disabled={plateMenuIds.length === 0 || plateAiLoading}
+                    className="inline-flex min-h-14 items-center justify-center gap-2 rounded-[22px] border border-forest-700 bg-forest-800 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-forest-900 disabled:opacity-50"
+                  >
+                    {plateAiLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-4 w-4" />
+                    )}
+                    Analisis AI
+                  </button>
+                </div>
+
+                <div
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const id = Number(e.dataTransfer.getData("menu-id"));
+                    if (id) addMenu(id);
+                  }}
+                  className="rounded-[30px] border border-forest-100 bg-[linear-gradient(180deg,#ffffff_0%,#f7fbf7_100%)] p-3 shadow-sm sm:p-4"
+                >
+                  {piringkuMenus.length === 0 ? (
+                    <div className="grid min-h-72 place-items-center rounded-[26px] border border-dashed border-forest-200 bg-white/70 p-6 text-center">
+                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-[24px] bg-forest-50 text-forest-800">
+                        <ChefHat className="h-8 w-8" />
+                      </div>
+                      <div className="mt-4 max-w-md">
+                        <h3 className="text-lg font-bold text-ink-700">
+                          Pilih menu untuk mulai analisis piringku
                         </h3>
+                        <p className="mt-2 text-sm leading-6 text-ink-400">
+                          Belum ada data nutrisi untuk ditampilkan. Tambahkan
+                          menu atau seret kartu dari daftar bawah.
+                        </p>
                       </div>
-                      <Gauge className="h-5 w-5 text-forest-800" />
+                      <div className="mt-6 grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-3">
+                        {[0, 1, 2].map((item) => (
+                          <div
+                            key={item}
+                            className="nutrition-shimmer h-24 rounded-[22px] border border-ink-100 bg-white"
+                          />
+                        ))}
+                      </div>
                     </div>
-
-                    <div className="grid grid-cols-1 gap-5 md:grid-cols-[220px_1fr]">
-                      <div className="relative mx-auto flex h-52 w-52 items-center justify-center">
-                        <svg viewBox="0 0 44 44" className="h-full w-full -rotate-90">
-                          <circle
-                            cx="22"
-                            cy="22"
-                            r="18"
-                            fill="none"
-                            stroke="#e8eee8"
-                            strokeWidth="5"
-                          />
-                          <motion.circle
-                            cx="22"
-                            cy="22"
-                            r="18"
-                            fill="none"
-                            stroke={plateAkgStatus.ringColor}
-                            strokeLinecap="round"
-                            strokeWidth="5"
-                            initial={{ pathLength: 0 }}
-                            animate={{
-                              pathLength: Math.min(1.3, plateAkgPercent / 100),
-                            }}
-                            transition={{ duration: 0.8, ease: "easeOut" }}
-                          />
-                        </svg>
-                        <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                          <span
-                            className={`text-5xl font-black ${plateAkgStatus.textClass}`}
-                          >
-                            {plateAkgPercent}%
-                          </span>
-                          <span className="mt-1 text-xs font-bold text-ink-400">
-                            skor gabungan
-                          </span>
+                  ) : (
+                    <div>
+                      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
+                            Menu Terpilih
+                          </p>
+                          <h3 className="mt-1 text-xl font-black text-ink-700">
+                            {piringkuMenus.length} widget menu aktif
+                          </h3>
                         </div>
-                      </div>
-
-                      <div className="space-y-3">
                         <span
-                          className={`inline-flex rounded-full px-3 py-1.5 text-xs font-bold ${plateAkgStatus.badgeClass}`}
+                          className={`w-fit rounded-full px-3 py-1.5 text-xs font-bold ${plateAkgStatus.badgeClass}`}
                         >
+                          Total Piringku: {plateAkgPercent}% -{" "}
                           {plateAkgStatus.label}
                         </span>
-                        <p className="text-sm leading-6 text-ink-500">
-                          Status dihitung dari kalori, komposisi makro, dan
-                          mikronutrien yang tersedia pada menu.
-                        </p>
-                        <div className="grid grid-cols-2 gap-2">
-                          {visibleRows.slice(0, 4).map((row) => (
-                            <div
-                              key={row.label}
-                              className="rounded-[18px] border border-ink-100 bg-forest-25 px-3 py-3"
-                            >
-                              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-400">
-                                {row.label}
-                              </p>
-                              <p className="mt-1 text-sm font-black text-ink-700">
-                                {Math.round(row.val)} / {row.target} {row.unit}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
                       </div>
-                    </div>
-                  </div>
 
-                  <div className="rounded-[30px] border border-ink-100 bg-[linear-gradient(180deg,#ffffff_0%,#f6fbf7_100%)] p-5 shadow-sm">
-                    <div className="mb-4 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
-                          Komposisi Makronutrien
-                        </p>
-                        <h3 className="mt-1 text-lg font-black text-ink-700">
-                          Donut Macro Composition
-                        </h3>
-                      </div>
-                      <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-forest-800 shadow-sm">
-                        {Math.round(macroTotal)} g total
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-5 md:grid-cols-[220px_1fr]">
-                      <CompositionDonut
-                        segments={slices}
-                        centerValue={`${Math.round(macroTotal)} g`}
-                        centerLabel="total makro"
-                      />
-
-                      <div className="space-y-3">
-                        {slices.map((slice) => {
-                          const percent =
-                            macroTotal > 0
-                              ? Math.round((slice.value / macroTotal) * 100)
-                              : 0;
-                          const kcal =
-                            slice.key === "lemak"
-                              ? Math.round(slice.value * 9)
-                              : Math.round(slice.value * 4);
-                          const row = rows.find(
-                            (item) =>
-                              item.label.toLowerCase() ===
-                              (slice.key === "karbo" ? "karbo" : slice.key),
+                      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                        {piringkuMenus.map((menu) => {
+                          const imageUrl = resolveMenuImageUrl(menu.gambar_url);
+                          const displayName =
+                            sanitizeMenuName(menu.nama) || menu.nama;
+                          const menuMacroTotal =
+                            Number(menu.protein || 0) +
+                            Number(menu.karbohidrat || 0) +
+                            Number(menu.lemak || 0);
+                          const menuPercent = Math.round(
+                            (Number(menu.kalori || 0) /
+                              STANDAR[kelompok].kalori) *
+                              100,
                           );
+                          const menuStatus = getAkgStatus(menuPercent);
+                          const menuSlices = [
+                            {
+                              key: "karbo",
+                              label: "Karbohidrat",
+                              value: Number(menu.karbohidrat || 0),
+                              color: "#8b5cf6",
+                            },
+                            {
+                              key: "protein",
+                              label: "Protein",
+                              value: Number(menu.protein || 0),
+                              color: "#10b981",
+                            },
+                            {
+                              key: "lemak",
+                              label: "Lemak",
+                              value: Number(menu.lemak || 0),
+                              color: "#f59e0b",
+                            },
+                          ].filter((item) => item.value > 0);
 
                           return (
                             <div
-                              key={slice.key}
-                              className="rounded-[22px] border border-ink-100 bg-white px-4 py-3 shadow-sm"
+                              key={menu.id}
+                              className="grid overflow-hidden rounded-[28px] border border-ink-100 bg-white shadow-sm sm:grid-cols-[180px_1fr]"
                             >
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="flex items-center gap-3">
-                                  <span
-                                    className="flex h-10 w-10 items-center justify-center rounded-2xl"
-                                    style={{
-                                      backgroundColor: `${slice.color}18`,
-                                      color: slice.color,
-                                    }}
-                                  >
-                                    {slice.key === "protein" ? (
-                                      <ProteinIcon className="h-5 w-5" />
-                                    ) : slice.key === "lemak" ? (
-                                      <FatIcon className="h-5 w-5" />
-                                    ) : (
-                                      <CarboIcon className="h-5 w-5" />
-                                    )}
-                                  </span>
-                                  <div>
-                                    <p className="text-sm font-bold text-ink-700">
-                                      {slice.label}
-                                    </p>
-                                    <p className="text-xs text-ink-400">
-                                      {Math.round(slice.value)} g - {kcal} kkal
-                                    </p>
+                              <div className="relative min-h-52 bg-forest-50 sm:min-h-full">
+                                {imageUrl ? (
+                                  <img
+                                    src={imageUrl}
+                                    alt={displayName}
+                                    className="h-full min-h-52 w-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="flex h-full min-h-52 items-center justify-center text-forest-700">
+                                    <ChefHat className="h-12 w-12" />
                                   </div>
+                                )}
+                                <div className="absolute left-3 top-3 rounded-full bg-white/92 px-3 py-1.5 text-xs font-bold text-forest-900 shadow-sm">
+                                  1 Porsi
                                 </div>
-                                <div className="text-right">
-                                  <p className="text-lg font-black text-ink-700">
-                                    {percent}%
-                                  </p>
-                                  <span
-                                    className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${row?.status.badgeClass || ""}`}
+                              </div>
+
+                              <div className="flex min-w-0 flex-col gap-4 p-4">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-400">
+                                      Target {STANDAR[kelompok].label}
+                                    </p>
+                                    <h4 className="mt-1 line-clamp-2 text-lg font-black text-ink-700">
+                                      {displayName}
+                                    </h4>
+                                  </div>
+                                  <button
+                                    onClick={() => removeMenu(menu.id)}
+                                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100"
+                                    title="Hapus dari Piringku"
                                   >
-                                    {row?.status.label || "Baik"}
-                                  </span>
+                                    <X className="h-4 w-4" />
+                                  </button>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-2">
+                                  {[
+                                    [
+                                      `${Math.round(Number(menu.kalori || 0))}`,
+                                      "kkal",
+                                    ],
+                                    [
+                                      `${plateIngredientCountMap[menu.id] || 0}`,
+                                      "komponen",
+                                    ],
+                                    [`${menuPercent}%`, "AKG"],
+                                  ].map(([value, label]) => (
+                                    <div
+                                      key={label}
+                                      className="rounded-[18px] border border-ink-100 bg-forest-25 px-3 py-2"
+                                    >
+                                      <p className="text-sm font-black text-ink-700">
+                                        {value}
+                                      </p>
+                                      <p className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-ink-400">
+                                        {label}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                <span
+                                  className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${menuStatus.badgeClass}`}
+                                >
+                                  {menuStatus.label}
+                                </span>
+
+                                <div className="space-y-2">
+                                  {menuSlices.map((slice) => {
+                                    const percent =
+                                      menuMacroTotal > 0
+                                        ? Math.round(
+                                            (slice.value / menuMacroTotal) *
+                                              100,
+                                          )
+                                        : 0;
+                                    return (
+                                      <div
+                                        key={slice.key}
+                                        className="flex items-center justify-between gap-3 text-xs"
+                                      >
+                                        <div className="flex min-w-0 items-center gap-2">
+                                          <span
+                                            className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                            style={{
+                                              backgroundColor: slice.color,
+                                            }}
+                                          />
+                                          <span className="truncate font-bold text-ink-700">
+                                            {slice.label}
+                                          </span>
+                                        </div>
+                                        <span className="font-semibold text-ink-400">
+                                          {Math.round(slice.value)} g -{" "}
+                                          {percent}%
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               </div>
                             </div>
@@ -2430,322 +2402,506 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                         })}
                       </div>
                     </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-                  <div className="rounded-[30px] border border-ink-100 bg-white p-5 shadow-sm">
-                    <div className="mb-4 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
-                          Perbandingan Detail Zat Gizi
-                        </p>
-                        <h3 className="mt-1 text-lg font-black text-ink-700">
-                          Asupan vs AKG 2019
-                        </h3>
-                      </div>
-                      <Scale className="h-5 w-5 text-forest-800" />
-                    </div>
-
-                    {analysisRows.length === 0 ? (
-                      <div className="rounded-[22px] border border-dashed border-ink-100 bg-gray-50 p-5 text-sm text-ink-400">
-                        Belum ada data nutrisi untuk dibandingkan.
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {analysisRows.map((row) => (
-                          <div
-                            key={row.key}
-                            className="grid grid-cols-1 gap-3 rounded-[22px] border border-ink-100 bg-white px-4 py-4 shadow-sm md:grid-cols-[1.2fr_0.8fr_0.8fr_0.7fr_auto] md:items-center"
-                          >
-                            <div className="flex items-center gap-3">
-                              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-forest-50 text-forest-800">
-                                {row.label === "Kalori" ? (
-                                  <CalorieIcon className="h-5 w-5" />
-                                ) : row.label === "Protein" ? (
-                                  <ProteinIcon className="h-5 w-5" />
-                                ) : row.label === "Lemak" ? (
-                                  <FatIcon className="h-5 w-5" />
-                                ) : (
-                                  <CarboIcon className="h-5 w-5" />
-                                )}
-                              </span>
-                              <p className="font-bold text-ink-700">
-                                {row.label}
-                              </p>
-                            </div>
-                            <p className="text-sm text-ink-500">
-                              {Math.round(row.val)} {row.unit}
-                            </p>
-                            <p className="text-sm text-ink-500">
-                              {row.target ? `${row.target} ${row.unit}` : "-"}
-                            </p>
-                            <p className="text-sm font-black text-ink-700">
-                              {row.percent !== null ? `${row.percent}%` : "-"}
-                            </p>
-                            <span
-                              className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${
-                                row.status?.badgeClass ||
-                                "border border-forest-100 bg-forest-50 text-forest-800"
-                              }`}
-                            >
-                              {row.statusLabel}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rounded-[30px] border border-ink-100 bg-white p-5 shadow-sm">
-                    <div className="mb-4 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
-                          Mikronutrien
-                        </p>
-                        <h3 className="mt-1 text-lg font-black text-ink-700">
-                          Data Tambahan Menu
-                        </h3>
-                      </div>
-                      <FlaskConical className="h-5 w-5 text-forest-800" />
-                    </div>
-
-                    {microStatus.length === 0 ? (
-                      <div className="rounded-[24px] border border-dashed border-ink-100 bg-forest-25 p-6 text-center">
-                        <Leaf className="mx-auto h-8 w-8 text-forest-700" />
-                        <p className="mt-3 text-sm font-bold text-ink-700">
-                          Belum ada data mikronutrien
-                        </p>
-                        <p className="mt-1 text-xs leading-5 text-ink-400">
-                          Tambahkan nutrien manual pada menu agar progres mikro
-                          muncul di sini.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 gap-5 md:grid-cols-[190px_1fr]">
-                        <CompositionDonut
-                          segments={microStatus.map((field) => ({
-                            key: field.key,
-                            label: field.label,
-                            value: field.value,
-                            color: field.color,
-                          }))}
-                          centerValue={`${Math.round(microTotal * 10) / 10}`}
-                          centerLabel="total mikro"
-                          sizeClass="h-48 w-48"
-                        />
-
-                        <div className="space-y-3">
-                          {microStatus.map((field) => {
-                            const shownValue =
-                              Math.round(field.value * 10) / 10;
-
-                            return (
-                              <div
-                                key={field.key}
-                                className="rounded-[20px] border border-ink-100 bg-white px-3 py-3 shadow-sm"
-                              >
-                                <div className="flex items-center justify-between gap-3">
-                                  <div className="flex min-w-0 items-center gap-2">
-                                    <span
-                                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
-                                      style={{
-                                        backgroundColor: `${field.color}18`,
-                                      }}
-                                    >
-                                      <NutrientAssetIcon
-                                        name={field.label}
-                                        className="h-6 w-6"
-                                      />
-                                    </span>
-                                    <div className="min-w-0">
-                                      <p className="truncate text-sm font-bold text-ink-700">
-                                        {field.label}
-                                      </p>
-                                      <p className="text-xs text-ink-400">
-                                        {shownValue} {field.unit}
-                                        {field.target
-                                          ? ` / ${field.target} ${field.unit}`
-                                          : ""}
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <div className="text-right">
-                                    <p className="text-sm font-black text-ink-700">
-                                      {field.percent}%
-                                    </p>
-                                    <p
-                                      className={`text-[11px] font-bold ${field.statusClass}`}
-                                    >
-                                      {field.statusLabel}
-                                    </p>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {dataWarnings.length > 0 && (
-                  <div className="rounded-[26px] border border-amber-100 bg-amber-50 p-4">
-                    <div className="flex items-start gap-3">
-                      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
-                      <div>
-                        <p className="text-sm font-bold text-amber-900">
-                          Data belum lengkap
-                        </p>
-                        <div className="mt-1 space-y-1">
-                          {dataWarnings.map((warning) => (
-                            <p
-                              key={warning}
-                              className="text-sm leading-6 text-amber-800"
-                            >
-                              {warning}
-                            </p>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-                  {plateAiLoading ? (
-                    [
-                      "AI sedang menganalisis komposisi menu...",
-                      "Menyusun catatan ahli gizi...",
-                      "Menghasilkan tips dan kesimpulan...",
-                    ].map((text) => (
-                      <div
-                        key={text}
-                        className="flex min-h-44 flex-col items-center justify-center rounded-[30px] border border-forest-100 bg-white p-6 text-center shadow-sm"
-                      >
-                        <Loader2 className="h-7 w-7 animate-spin text-forest-800" />
-                        <p className="mt-4 text-sm font-bold leading-6 text-ink-700">
-                          {text}
-                        </p>
-                      </div>
-                    ))
-                  ) : plateAiError ? (
-                    <div className="xl:col-span-3 rounded-[30px] border border-red-100 bg-red-50 p-5">
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-start gap-3">
-                          <AlertTriangle className="mt-0.5 h-5 w-5 text-red-600" />
-                          <div>
-                            <p className="text-sm font-bold text-red-800">
-                              OpenAI/Gemini/DeepSeek API wajib untuk analisis dashboard
-                            </p>
-                            <p className="mt-1 text-sm text-red-700">
-                              {plateAiError}
-                            </p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={retryPlateAi}
-                          className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-white px-4 py-3 text-sm font-bold text-red-700 shadow-sm"
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                          Retry
-                        </button>
-                      </div>
-                    </div>
-                  ) : plateAiAnalysis ? (
-                    <>
-                      <div className="rounded-[30px] border border-violet-100 bg-violet-50/70 p-5 shadow-sm">
-                        <div className="mb-4 flex items-center gap-3">
-                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-violet-700 shadow-sm">
-                            <Info className="h-5 w-5" />
-                          </div>
-                          <div>
-                            <p className="font-black text-violet-900">
-                              Catatan AI
-                            </p>
-                            <p className="text-xs text-violet-700/70">
-                              {plateAiAnalysis.ai_engine}
-                            </p>
-                          </div>
-                        </div>
-                        <p className="text-sm leading-7 text-violet-950/80">
-                          {plateAiAnalysis.catatan_ai}
-                        </p>
-                      </div>
-
-                      <div className="rounded-[30px] border border-amber-100 bg-amber-50/80 p-5 shadow-sm">
-                        <div className="mb-4 flex items-center gap-3">
-                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-amber-700 shadow-sm">
-                            <Sparkles className="h-5 w-5" />
-                          </div>
-                          <div>
-                            <p className="font-black text-amber-900">
-                              Tips AI
-                            </p>
-                            <p className="text-xs text-amber-700/70">
-                              Rekomendasi praktis
-                            </p>
-                          </div>
-                        </div>
-                        <p className="text-sm leading-7 text-amber-950/80">
-                          {plateAiAnalysis.tips_ai}
-                        </p>
-                      </div>
-
-                      <div className="rounded-[30px] border border-forest-100 bg-forest-50/80 p-5 shadow-sm">
-                        <div className="mb-4 flex items-center gap-3">
-                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-forest-800 shadow-sm">
-                            <CheckCircle2 className="h-5 w-5" />
-                          </div>
-                          <div>
-                            <p className="font-black text-forest-950">
-                              Kesimpulan AI
-                            </p>
-                            <p className="text-xs text-forest-700/70">
-                              {plateAiAnalysis.ai_engine}
-                            </p>
-                          </div>
-                        </div>
-                        <p className="text-sm leading-7 text-forest-950/80">
-                          {plateAiAnalysis.kesimpulan_ai}
-                        </p>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="xl:col-span-3 rounded-[30px] border border-forest-100 bg-white p-5 shadow-sm">
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-start gap-3">
-                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-forest-50 text-forest-800">
-                            <Sparkles className="h-5 w-5" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold text-ink-700">
-                              Analisis belum dijalankan
-                            </p>
-                            <p className="mt-1 text-sm leading-6 text-ink-400">
-                              Pilih menu Piringku, lalu tekan Analisis AI.
-                            </p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={runPlateAnalysis}
-                          disabled={plateMenuIds.length === 0}
-                          className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-forest-800 px-4 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50"
-                        >
-                          <Sparkles className="h-4 w-4" />
-                          Jalankan Analisis
-                        </button>
-                      </div>
-                    </div>
                   )}
                 </div>
-              </>
-            )}
-          </div>
-        </motion.div>
 
-        {/* <motion.div
+                {piringkuMenus.length > 0 && (
+                  <>
+                    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+                      <div className="rounded-[30px] border border-ink-100 bg-white p-5 shadow-sm">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
+                              Ringkasan AKG Harian
+                            </p>
+                            <h3 className="mt-1 text-lg font-black text-ink-700">
+                              Capaian Total Piringku
+                            </h3>
+                          </div>
+                          <Gauge className="h-5 w-5 text-forest-800" />
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-5 md:grid-cols-[220px_1fr]">
+                          <div className="relative mx-auto flex h-52 w-52 items-center justify-center">
+                            <svg
+                              viewBox="0 0 44 44"
+                              className="h-full w-full -rotate-90"
+                            >
+                              <circle
+                                cx="22"
+                                cy="22"
+                                r="18"
+                                fill="none"
+                                stroke="#e8eee8"
+                                strokeWidth="5"
+                              />
+                              <motion.circle
+                                cx="22"
+                                cy="22"
+                                r="18"
+                                fill="none"
+                                stroke={plateAkgStatus.ringColor}
+                                strokeLinecap="round"
+                                strokeWidth="5"
+                                initial={{ pathLength: 0 }}
+                                animate={{
+                                  pathLength: Math.min(
+                                    1.3,
+                                    plateAkgPercent / 100,
+                                  ),
+                                }}
+                                transition={{ duration: 0.8, ease: "easeOut" }}
+                              />
+                            </svg>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                              <span
+                                className={`text-5xl font-black ${plateAkgStatus.textClass}`}
+                              >
+                                {plateAkgPercent}%
+                              </span>
+                              <span className="mt-1 text-xs font-bold text-ink-400">
+                                skor gabungan
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            <span
+                              className={`inline-flex rounded-full px-3 py-1.5 text-xs font-bold ${plateAkgStatus.badgeClass}`}
+                            >
+                              {plateAkgStatus.label}
+                            </span>
+                            <p className="text-sm leading-6 text-ink-500">
+                              Status dihitung dari kalori, komposisi makro, dan
+                              mikronutrien yang tersedia pada menu.
+                            </p>
+                            <div className="grid grid-cols-2 gap-2">
+                              {visibleRows.slice(0, 4).map((row) => (
+                                <div
+                                  key={row.label}
+                                  className="rounded-[18px] border border-ink-100 bg-forest-25 px-3 py-3"
+                                >
+                                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-400">
+                                    {row.label}
+                                  </p>
+                                  <p className="mt-1 text-sm font-black text-ink-700">
+                                    {Math.round(row.val)} / {row.target}{" "}
+                                    {row.unit}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-[30px] border border-ink-100 bg-[linear-gradient(180deg,#ffffff_0%,#f6fbf7_100%)] p-5 shadow-sm">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
+                              Komposisi Makronutrien
+                            </p>
+                            <h3 className="mt-1 text-lg font-black text-ink-700">
+                              Donut Macro Composition
+                            </h3>
+                          </div>
+                          <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-forest-800 shadow-sm">
+                            {Math.round(macroTotal)} g total
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-5 md:grid-cols-[220px_1fr]">
+                          <CompositionDonut
+                            segments={slices}
+                            centerValue={`${Math.round(macroTotal)} g`}
+                            centerLabel="total makro"
+                          />
+
+                          <div className="space-y-3">
+                            {slices.map((slice) => {
+                              const percent =
+                                macroTotal > 0
+                                  ? Math.round((slice.value / macroTotal) * 100)
+                                  : 0;
+                              const kcal =
+                                slice.key === "lemak"
+                                  ? Math.round(slice.value * 9)
+                                  : Math.round(slice.value * 4);
+                              const row = rows.find(
+                                (item) =>
+                                  item.label.toLowerCase() ===
+                                  (slice.key === "karbo" ? "karbo" : slice.key),
+                              );
+
+                              return (
+                                <div
+                                  key={slice.key}
+                                  className="rounded-[22px] border border-ink-100 bg-white px-4 py-3 shadow-sm"
+                                >
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-3">
+                                      <span
+                                        className="flex h-10 w-10 items-center justify-center rounded-2xl"
+                                        style={{
+                                          backgroundColor: `${slice.color}18`,
+                                          color: slice.color,
+                                        }}
+                                      >
+                                        {slice.key === "protein" ? (
+                                          <ProteinIcon className="h-5 w-5" />
+                                        ) : slice.key === "lemak" ? (
+                                          <FatIcon className="h-5 w-5" />
+                                        ) : (
+                                          <CarboIcon className="h-5 w-5" />
+                                        )}
+                                      </span>
+                                      <div>
+                                        <p className="text-sm font-bold text-ink-700">
+                                          {slice.label}
+                                        </p>
+                                        <p className="text-xs text-ink-400">
+                                          {Math.round(slice.value)} g - {kcal}{" "}
+                                          kkal
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="text-lg font-black text-ink-700">
+                                        {percent}%
+                                      </p>
+                                      <span
+                                        className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${row?.status.badgeClass || ""}`}
+                                      >
+                                        {row?.status.label || "Baik"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+                      <div className="rounded-[30px] border border-ink-100 bg-white p-5 shadow-sm">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
+                              Perbandingan Detail Zat Gizi
+                            </p>
+                            <h3 className="mt-1 text-lg font-black text-ink-700">
+                              Asupan vs AKG 2019
+                            </h3>
+                          </div>
+                          <Scale className="h-5 w-5 text-forest-800" />
+                        </div>
+
+                        {analysisRows.length === 0 ? (
+                          <div className="rounded-[22px] border border-dashed border-ink-100 bg-gray-50 p-5 text-sm text-ink-400">
+                            Belum ada data nutrisi untuk dibandingkan.
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {analysisRows.map((row) => (
+                              <div
+                                key={row.key}
+                                className="grid grid-cols-1 gap-3 rounded-[22px] border border-ink-100 bg-white px-4 py-4 shadow-sm md:grid-cols-[1.2fr_0.8fr_0.8fr_0.7fr_auto] md:items-center"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-forest-50 text-forest-800">
+                                    {row.label === "Kalori" ? (
+                                      <CalorieIcon className="h-5 w-5" />
+                                    ) : row.label === "Protein" ? (
+                                      <ProteinIcon className="h-5 w-5" />
+                                    ) : row.label === "Lemak" ? (
+                                      <FatIcon className="h-5 w-5" />
+                                    ) : (
+                                      <CarboIcon className="h-5 w-5" />
+                                    )}
+                                  </span>
+                                  <p className="font-bold text-ink-700">
+                                    {row.label}
+                                  </p>
+                                </div>
+                                <p className="text-sm text-ink-500">
+                                  {Math.round(row.val)} {row.unit}
+                                </p>
+                                <p className="text-sm text-ink-500">
+                                  {row.target
+                                    ? `${row.target} ${row.unit}`
+                                    : "-"}
+                                </p>
+                                <p className="text-sm font-black text-ink-700">
+                                  {row.percent !== null
+                                    ? `${row.percent}%`
+                                    : "-"}
+                                </p>
+                                <span
+                                  className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${
+                                    row.status?.badgeClass ||
+                                    "border border-forest-100 bg-forest-50 text-forest-800"
+                                  }`}
+                                >
+                                  {row.statusLabel}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded-[30px] border border-ink-100 bg-white p-5 shadow-sm">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
+                              Mikronutrien
+                            </p>
+                            <h3 className="mt-1 text-lg font-black text-ink-700">
+                              Data Tambahan Menu
+                            </h3>
+                          </div>
+                          <FlaskConical className="h-5 w-5 text-forest-800" />
+                        </div>
+
+                        {microStatus.length === 0 ? (
+                          <div className="rounded-[24px] border border-dashed border-ink-100 bg-forest-25 p-6 text-center">
+                            <Leaf className="mx-auto h-8 w-8 text-forest-700" />
+                            <p className="mt-3 text-sm font-bold text-ink-700">
+                              Belum ada data mikronutrien
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-ink-400">
+                              Tambahkan nutrien manual pada menu agar progres
+                              mikro muncul di sini.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 gap-5 md:grid-cols-[190px_1fr]">
+                            <CompositionDonut
+                              segments={microStatus.map((field) => ({
+                                key: field.key,
+                                label: field.label,
+                                value: field.value,
+                                color: field.color,
+                              }))}
+                              centerValue={`${Math.round(microTotal * 10) / 10}`}
+                              centerLabel="total mikro"
+                              sizeClass="h-48 w-48"
+                            />
+
+                            <div className="space-y-3">
+                              {microStatus.map((field) => {
+                                const shownValue =
+                                  Math.round(field.value * 10) / 10;
+
+                                return (
+                                  <div
+                                    key={field.key}
+                                    className="rounded-[20px] border border-ink-100 bg-white px-3 py-3 shadow-sm"
+                                  >
+                                    <div className="flex items-center justify-between gap-3">
+                                      <div className="flex min-w-0 items-center gap-2">
+                                        <span
+                                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+                                          style={{
+                                            backgroundColor: `${field.color}18`,
+                                          }}
+                                        >
+                                          <NutrientAssetIcon
+                                            name={field.label}
+                                            className="h-6 w-6"
+                                          />
+                                        </span>
+                                        <div className="min-w-0">
+                                          <p className="truncate text-sm font-bold text-ink-700">
+                                            {field.label}
+                                          </p>
+                                          <p className="text-xs text-ink-400">
+                                            {shownValue} {field.unit}
+                                            {field.target
+                                              ? ` / ${field.target} ${field.unit}`
+                                              : ""}
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div className="text-right">
+                                        <p className="text-sm font-black text-ink-700">
+                                          {field.percent}%
+                                        </p>
+                                        <p
+                                          className={`text-[11px] font-bold ${field.statusClass}`}
+                                        >
+                                          {field.statusLabel}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {dataWarnings.length > 0 && (
+                      <div className="rounded-[26px] border border-amber-100 bg-amber-50 p-4">
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                          <div>
+                            <p className="text-sm font-bold text-amber-900">
+                              Data belum lengkap
+                            </p>
+                            <div className="mt-1 space-y-1">
+                              {dataWarnings.map((warning) => (
+                                <p
+                                  key={warning}
+                                  className="text-sm leading-6 text-amber-800"
+                                >
+                                  {warning}
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+                      {plateAiLoading ? (
+                        [
+                          "AI sedang menganalisis komposisi menu...",
+                          "Menyusun catatan ahli gizi...",
+                          "Menghasilkan tips dan kesimpulan...",
+                        ].map((text) => (
+                          <div
+                            key={text}
+                            className="flex min-h-44 flex-col items-center justify-center rounded-[30px] border border-forest-100 bg-white p-6 text-center shadow-sm"
+                          >
+                            <Loader2 className="h-7 w-7 animate-spin text-forest-800" />
+                            <p className="mt-4 text-sm font-bold leading-6 text-ink-700">
+                              {text}
+                            </p>
+                          </div>
+                        ))
+                      ) : plateAiError ? (
+                        <div className="xl:col-span-3 rounded-[30px] border border-red-100 bg-red-50 p-5">
+                          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex items-start gap-3">
+                              <AlertTriangle className="mt-0.5 h-5 w-5 text-red-600" />
+                              <div>
+                                <p className="text-sm font-bold text-red-800">
+                                  OpenAI/Gemini/DeepSeek API wajib untuk
+                                  analisis dashboard
+                                </p>
+                                <p className="mt-1 text-sm text-red-700">
+                                  {plateAiError}
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={retryPlateAi}
+                              className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-white px-4 py-3 text-sm font-bold text-red-700 shadow-sm"
+                            >
+                              <RefreshCw className="h-4 w-4" />
+                              Retry
+                            </button>
+                          </div>
+                        </div>
+                      ) : plateAiAnalysis ? (
+                        <>
+                          <div className="rounded-[30px] border border-violet-100 bg-violet-50/70 p-5 shadow-sm">
+                            <div className="mb-4 flex items-center gap-3">
+                              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-violet-700 shadow-sm">
+                                <Info className="h-5 w-5" />
+                              </div>
+                              <div>
+                                <p className="font-black text-violet-900">
+                                  Catatan AI
+                                </p>
+                                <p className="text-xs text-violet-700/70">
+                                  {plateAiAnalysis.ai_engine}
+                                </p>
+                              </div>
+                            </div>
+                            <p className="text-sm leading-7 text-violet-950/80">
+                              {plateAiAnalysis.catatan_ai}
+                            </p>
+                          </div>
+
+                          <div className="rounded-[30px] border border-amber-100 bg-amber-50/80 p-5 shadow-sm">
+                            <div className="mb-4 flex items-center gap-3">
+                              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-amber-700 shadow-sm">
+                                <Sparkles className="h-5 w-5" />
+                              </div>
+                              <div>
+                                <p className="font-black text-amber-900">
+                                  Tips AI
+                                </p>
+                                <p className="text-xs text-amber-700/70">
+                                  Rekomendasi praktis
+                                </p>
+                              </div>
+                            </div>
+                            <p className="text-sm leading-7 text-amber-950/80">
+                              {plateAiAnalysis.tips_ai}
+                            </p>
+                          </div>
+
+                          <div className="rounded-[30px] border border-forest-100 bg-forest-50/80 p-5 shadow-sm">
+                            <div className="mb-4 flex items-center gap-3">
+                              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-forest-800 shadow-sm">
+                                <CheckCircle2 className="h-5 w-5" />
+                              </div>
+                              <div>
+                                <p className="font-black text-forest-950">
+                                  Kesimpulan AI
+                                </p>
+                                <p className="text-xs text-forest-700/70">
+                                  {plateAiAnalysis.ai_engine}
+                                </p>
+                              </div>
+                            </div>
+                            <p className="text-sm leading-7 text-forest-950/80">
+                              {plateAiAnalysis.kesimpulan_ai}
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="xl:col-span-3 rounded-[30px] border border-forest-100 bg-white p-5 shadow-sm">
+                          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex items-start gap-3">
+                              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-forest-50 text-forest-800">
+                                <Sparkles className="h-5 w-5" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-bold text-ink-700">
+                                  Analisis belum dijalankan
+                                </p>
+                                <p className="mt-1 text-sm leading-6 text-ink-400">
+                                  Pilih menu Piringku, lalu tekan Analisis AI.
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={runPlateAnalysis}
+                              disabled={plateMenuIds.length === 0}
+                              className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-forest-800 px-4 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50"
+                            >
+                              <Sparkles className="h-4 w-4" />
+                              Jalankan Analisis
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </motion.div>
+
+            {/* <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
@@ -2858,9 +3014,13 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
             </div>
           )}
         </motion.div> */}
-      </div>
+          </div>
+        </>
+      )}
 
-      <div className="card rounded-[32px] p-5 sm:p-6">
+      <div
+        className={isWeeklyOnly ? "card rounded-[32px] p-5 sm:p-6" : "hidden"}
+      >
         <div className="mb-5 rounded-[28px] border border-forest-200/70 bg-[linear-gradient(180deg,#f7fbf6_0%,#ffffff_100%)] p-4">
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -3319,7 +3479,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         </div>
       </div>
 
-      {showPlateMenuModal && (
+      {!isWeeklyOnly && showPlateMenuModal && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-3 backdrop-blur-sm sm:p-5">
           <div className="flex h-[min(90vh,780px)] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl">
             <div className="sticky top-0 z-10 border-b border-gray-100 bg-white px-5 py-4 shadow-sm">
@@ -3391,78 +3551,88 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
               ) : (
                 <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4">
                   {plateMenuOptions.map((menu) => {
-                const imageUrl = resolveMenuImageUrl(menu.gambar_url);
-                const displayName = sanitizeMenuName(menu.nama) || menu.nama;
-                const isSelected = selectedMenuId === menu.id;
+                    const imageUrl = resolveMenuImageUrl(menu.gambar_url);
+                    const displayName =
+                      sanitizeMenuName(menu.nama) || menu.nama;
+                    const isSelected = selectedMenuId === menu.id;
 
-                return (
-                  <button
-                    key={menu.id}
-                    onClick={() => {
-                      setSelectedMenuId(menu.id);
-                      setShowPlateMenuModal(false);
-                    }}
-                    className={`min-h-[310px] overflow-hidden rounded-[24px] border bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:border-forest-200 hover:shadow-md ${
-                      isSelected
-                        ? "border-forest-400 ring-2 ring-forest-100"
-                        : "border-gray-100"
-                    }`}
-                  >
-                    <div className="relative h-36 overflow-hidden">
-                      {imageUrl ? (
-                        <img
-                          src={imageUrl}
-                          alt={displayName}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-gray-50 text-gray-300">
-                          <ChefHat className="h-9 w-9" />
+                    return (
+                      <button
+                        key={menu.id}
+                        onClick={() => {
+                          setSelectedMenuId(menu.id);
+                          setShowPlateMenuModal(false);
+                        }}
+                        className={`min-h-[310px] overflow-hidden rounded-[24px] border bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:border-forest-200 hover:shadow-md ${
+                          isSelected
+                            ? "border-forest-400 ring-2 ring-forest-100"
+                            : "border-gray-100"
+                        }`}
+                      >
+                        <div className="relative h-36 overflow-hidden">
+                          {imageUrl ? (
+                            <img
+                              src={imageUrl}
+                              alt={displayName}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center bg-gray-50 text-gray-300">
+                              <ChefHat className="h-9 w-9" />
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-linear-to-t from-black/45 to-transparent" />
+                          <span className="absolute bottom-3 left-3 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-bold text-forest-800">
+                            {menu.kategori}
+                          </span>
                         </div>
-                      )}
-                      <div className="absolute inset-0 bg-linear-to-t from-black/45 to-transparent" />
-                      <span className="absolute bottom-3 left-3 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-bold text-forest-800">
-                        {menu.kategori}
-                      </span>
-                    </div>
-                    <div className="p-4">
-                      <p className="truncate text-sm font-bold text-gray-800">
-                        {displayName}
-                      </p>
-                      <p className="mt-1 line-clamp-2 min-h-10 text-xs leading-5 text-gray-500">
-                        {menu.deskripsi || "Komposisi menu MBG siap dianalisis."}
-                      </p>
-                      <div className="mt-3 grid grid-cols-4 gap-2 text-[11px]">
-                        {[
-                          {
-                            label: "Kal",
-                            value: menu.kalori ?? 0,
-                            unit: "kkal",
-                          },
-                          { label: "Pro", value: menu.protein ?? 0, unit: "g" },
-                          { label: "Lem", value: menu.lemak ?? 0, unit: "g" },
-                          {
-                            label: "Kar",
-                            value: menu.karbohidrat ?? 0,
-                            unit: "g",
-                          },
-                        ].map((item) => (
-                          <div
-                            key={item.label}
-                            className="rounded-2xl bg-forest-50 px-2 py-2 text-center"
-                          >
-                            <p className="font-bold text-forest-800">
-                              {item.value}
-                            </p>
-                            <p className="mt-0.5 text-[9px] text-gray-500">
-                              {item.label} {item.unit}
-                            </p>
+                        <div className="p-4">
+                          <p className="truncate text-sm font-bold text-gray-800">
+                            {displayName}
+                          </p>
+                          <p className="mt-1 line-clamp-2 min-h-10 text-xs leading-5 text-gray-500">
+                            {menu.deskripsi ||
+                              "Komposisi menu MBG siap dianalisis."}
+                          </p>
+                          <div className="mt-3 grid grid-cols-4 gap-2 text-[11px]">
+                            {[
+                              {
+                                label: "Kal",
+                                value: menu.kalori ?? 0,
+                                unit: "kkal",
+                              },
+                              {
+                                label: "Pro",
+                                value: menu.protein ?? 0,
+                                unit: "g",
+                              },
+                              {
+                                label: "Lem",
+                                value: menu.lemak ?? 0,
+                                unit: "g",
+                              },
+                              {
+                                label: "Kar",
+                                value: menu.karbohidrat ?? 0,
+                                unit: "g",
+                              },
+                            ].map((item) => (
+                              <div
+                                key={item.label}
+                                className="rounded-2xl bg-forest-50 px-2 py-2 text-center"
+                              >
+                                <p className="font-bold text-forest-800">
+                                  {item.value}
+                                </p>
+                                <p className="mt-0.5 text-[9px] text-gray-500">
+                                  {item.label} {item.unit}
+                                </p>
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  </button>
-                );
+                        </div>
+                      </button>
+                    );
                   })}
                 </div>
               )}
@@ -3471,7 +3641,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         </div>
       )}
 
-      {showDistributionModal && (
+      {isWeeklyOnly && showDistributionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
           <div className="w-full max-w-4xl rounded-[28px] bg-white p-5 shadow-xl">
             <div className="mb-4 flex items-start justify-between gap-4">
@@ -3608,7 +3778,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         </div>
       )}
 
-      {showSchedulePeriodModal && (
+      {isWeeklyOnly && showSchedulePeriodModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-3 backdrop-blur-sm sm:p-5">
           <div className="flex max-h-[92vh] w-full max-w-[1380px] flex-col overflow-hidden rounded-[32px] border border-white/80 bg-white shadow-[0_32px_90px_rgba(12,24,16,0.28)]">
             <div className="border-b border-gray-100 px-5 py-5 sm:px-7">
@@ -3873,7 +4043,8 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                         );
                         const isFilled = ids.length > 0;
                         const isMissing =
-                          !isFilled && activeSchedulePeriod.status === "partial";
+                          !isFilled &&
+                          activeSchedulePeriod.status === "partial";
                         return (
                           <div
                             key={day.dateKey}
@@ -3898,7 +4069,11 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                               {day.dayLabel.slice(0, 3)}
                             </p>
                             <p className="mt-1 text-xs font-bold">
-                              {isFilled ? "Terisi" : isMissing ? "Belum" : "Kosong"}
+                              {isFilled
+                                ? "Terisi"
+                                : isMissing
+                                  ? "Belum"
+                                  : "Kosong"}
                             </p>
                           </div>
                         );
@@ -3997,7 +4172,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         </div>
       )}
 
-      {showSaveScheduleConfirm && (
+      {isWeeklyOnly && showSaveScheduleConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
           <div className="w-full max-w-md rounded-[24px] bg-white p-6 shadow-xl">
             <div className="mb-4 flex items-start gap-3">
