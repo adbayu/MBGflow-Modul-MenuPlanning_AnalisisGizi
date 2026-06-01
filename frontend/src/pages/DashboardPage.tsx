@@ -3179,7 +3179,9 @@ export default function DashboardPage({
                           >
                             {day.dayLabel}
                           </p>
-                          <p className="text-xs text-gray-400">{day.dateLabel}</p>
+                          <p className="text-xs text-gray-400">
+                            {day.dateLabel}
+                          </p>
                           <p className="mt-1 text-[10px] font-medium text-forest-700/70">
                             {activeLocation.name}
                           </p>
@@ -3761,58 +3763,60 @@ export default function DashboardPage({
             ) : (
               <div className="grid max-h-[58vh] grid-cols-1 gap-3 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-3">
                 {distributionLocations.map((location) => {
-                const isSelected = location.id === activeLocationId;
+                  const isSelected = location.id === activeLocationId;
 
-                return (
-                  <div
-                    key={location.id}
-                    onClick={() => selectDistributionLocation(location.id)}
-                    className={`cursor-pointer overflow-hidden rounded-[22px] border bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-forest-200 hover:shadow-md ${
-                      isSelected
-                        ? "border-forest-400 ring-2 ring-forest-100"
-                        : "border-gray-100"
-                    }`}
-                  >
-                    <div className="relative h-28 overflow-hidden bg-[linear-gradient(180deg,#edf2ed_0%,#f7f9f7_100%)]">
-                      {location.image ? (
-                        <img
-                          src={location.image}
-                          alt={location.name}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-gray-300">
-                          <ChefHat className="h-10 w-10" />
+                  return (
+                    <div
+                      key={location.id}
+                      onClick={() => selectDistributionLocation(location.id)}
+                      className={`cursor-pointer overflow-hidden rounded-[22px] border bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-forest-200 hover:shadow-md ${
+                        isSelected
+                          ? "border-forest-400 ring-2 ring-forest-100"
+                          : "border-gray-100"
+                      }`}
+                    >
+                      <div className="relative h-28 overflow-hidden bg-[linear-gradient(180deg,#edf2ed_0%,#f7f9f7_100%)]">
+                        {location.image ? (
+                          <img
+                            src={location.image}
+                            alt={location.name}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-gray-300">
+                            <ChefHat className="h-10 w-10" />
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-linear-to-t from-black/35 via-black/5 to-transparent" />
+                        <div className="absolute bottom-2 left-3 flex flex-wrap gap-1.5">
+                          <span className="rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-forest-800">
+                            {location.type === "sekolah"
+                              ? "Sekolah"
+                              : "Posyandu"}
+                          </span>
+                          <span className="rounded-full bg-forest-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                            {getLocationRecipientLabel(location)}
+                          </span>
                         </div>
-                      )}
-                      <div className="absolute inset-0 bg-linear-to-t from-black/35 via-black/5 to-transparent" />
-                      <div className="absolute bottom-2 left-3 flex flex-wrap gap-1.5">
-                        <span className="rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-forest-800">
-                          {location.type === "sekolah" ? "Sekolah" : "Posyandu"}
-                        </span>
-                        <span className="rounded-full bg-forest-600 px-2 py-0.5 text-[10px] font-bold text-white">
-                          {getLocationRecipientLabel(location)}
-                        </span>
                       </div>
-                    </div>
 
-                    <div className="space-y-3 p-4">
-                      <div>
-                        <p className="truncate text-sm font-bold text-gray-800">
-                          {location.name}
-                        </p>
-                      </div>
-                      <div className="rounded-[16px] border border-forest-100 bg-forest-50/70 px-3 py-2">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-forest-700/75">
-                          Catatan
-                        </p>
-                        <p className="mt-1 text-xs leading-5 text-gray-600">
-                          {location.note}
-                        </p>
+                      <div className="space-y-3 p-4">
+                        <div>
+                          <p className="truncate text-sm font-bold text-gray-800">
+                            {location.name}
+                          </p>
+                        </div>
+                        <div className="rounded-[16px] border border-forest-100 bg-forest-50/70 px-3 py-2">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-forest-700/75">
+                            Catatan
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-gray-600">
+                            {location.note}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
+                  );
                 })}
               </div>
             )}
