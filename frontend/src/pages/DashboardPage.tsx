@@ -771,7 +771,7 @@ const EMPTY_DISTRIBUTION_LOCATION: DistributionLocation = {
   type: "sekolah",
   recipients: [],
   image: studentsImage,
-  name: "Lokasi belum tersedia",
+  name: "Belum ada lokasi yang ditetapkan",
   target: "0 penerima",
   schedule: "-",
   note: "Tambahkan lokasi distribusi di database agar jadwal dapat dipakai.",
@@ -899,9 +899,10 @@ export default function DashboardPage({
   const activeLocation =
     distributionLocations.find(
       (location) => location.id === activeLocationId,
-    ) ||
-    distributionLocations[0] ||
-    EMPTY_DISTRIBUTION_LOCATION;
+    ) || EMPTY_DISTRIBUTION_LOCATION;
+  const hasActiveLocationSelection = Boolean(
+    activeLocationId && activeLocation.id,
+  );
   const weeklyPlan = weeklyPlanByLocation[activeLocationId] || {};
   const activeLocationRecipients = getLocationRecipientLabel(activeLocation);
 
@@ -965,11 +966,6 @@ export default function DashboardPage({
           return;
         }
         setDistributionLocations(locations.map(withDistributionImage));
-        setActiveLocationId((prev) =>
-          locations.some((location) => location.id === prev)
-            ? prev
-            : locations[0].id,
-        );
       })
       .catch((error) => {
         console.error("Gagal memuat lokasi distribusi:", error);
@@ -1875,7 +1871,7 @@ export default function DashboardPage({
       {
         title: "Lokasi Distribusi",
         value: locationCount,
-        subtitle: latestLocation?.name || "Belum ada lokasi",
+        subtitle: latestLocation?.name || EMPTY_DISTRIBUTION_LOCATION.name,
         insight: `${scheduledLocationCount} lokasi sudah punya jadwal`,
         gradient: "from-[#ffffff] to-[#f7faf7]",
         iconBg: "bg-forest-100",
@@ -3041,11 +3037,21 @@ export default function DashboardPage({
                 Susun Jadwal Menu Senin - Sabtu
               </h3>
               <p className="mt-1 text-sm leading-6 text-gray-500">
-                Jadwal aktif untuk{" "}
-                <span className="font-semibold text-forest-800">
-                  {activeLocation.name}
-                </span>{" "}
-                ({activeLocationRecipients}).
+                {hasActiveLocationSelection ? (
+                  <>
+                    Jadwal aktif untuk{" "}
+                    <span className="font-semibold text-forest-800">
+                      {activeLocation.name}
+                    </span>{" "}
+                    ({activeLocationRecipients}).
+                  </>
+                ) : (
+                  <span className="font-semibold text-amber-700">
+                    {distributionLocations.length === 0
+                      ? "Belum ada lokasi yang ditetapkan."
+                      : "Silahkan pilih lokasi terlebih dahulu."}
+                  </span>
+                )}
               </p>
             </div>
 
@@ -3083,7 +3089,7 @@ export default function DashboardPage({
               </button>
               <button
                 onClick={() => setShowSaveScheduleConfirm(true)}
-                disabled={!activeLocation.id}
+                disabled={!hasActiveLocationSelection}
                 className="inline-flex items-center gap-1 rounded-full border border-forest-700 bg-forest-800 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-forest-900 disabled:opacity-50"
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
@@ -3092,250 +3098,276 @@ export default function DashboardPage({
             </div>
           </div>
 
-          <div className="mb-5 overflow-hidden rounded-[26px] border border-forest-100 bg-white shadow-sm">
-            <div className="relative min-h-[150px] p-5">
-              <div className="relative z-10 max-w-2xl">
-                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-forest-700/80">
-                  Lokasi Distribusi
-                </p>
-                <div className="mt-3 flex items-start gap-3">
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-forest-100 bg-forest-50 text-forest-800 shadow-sm">
-                    <Users className="h-6 w-6" />
-                  </div>
-                  <div className="min-w-0">
-                    <h4 className="text-xl font-bold text-gray-800">
-                      {activeLocation.name}
-                    </h4>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {activeLocation.recipients.map((recipient) => (
-                        <span
-                          key={recipient.label}
-                          className="rounded-full border border-forest-100 bg-forest-50 px-3 py-1 text-xs font-semibold text-forest-800"
-                        >
-                          {recipient.label}: {recipient.target}
-                        </span>
-                      ))}
-                    </div>
-                    <p className="mt-3 text-sm leading-6 text-gray-500">
-                      Periode {weekPeriod}. {activeLocation.note}
+          {hasActiveLocationSelection ? (
+            <>
+              <div className="mb-5 overflow-hidden rounded-[26px] border border-forest-100 bg-white shadow-sm">
+                <div className="relative min-h-[150px] p-5">
+                  <div className="relative z-10 max-w-2xl">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-forest-700/80">
+                      Lokasi Distribusi
                     </p>
+                    <div className="mt-3 flex items-start gap-3">
+                      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-forest-100 bg-forest-50 text-forest-800 shadow-sm">
+                        <Users className="h-6 w-6" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="text-xl font-bold text-gray-800">
+                          {activeLocation.name}
+                        </h4>
+                        {activeLocation.recipients.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {activeLocation.recipients.map((recipient) => (
+                              <span
+                                key={recipient.label}
+                                className="rounded-full border border-forest-100 bg-forest-50 px-3 py-1 text-xs font-semibold text-forest-800"
+                              >
+                                {recipient.label}: {recipient.target}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-sm font-semibold text-amber-700">
+                            Belum ada lokasi yang ditetapkan
+                          </p>
+                        )}
+                        <p className="mt-3 text-sm leading-6 text-gray-500">
+                          Periode {weekPeriod}. {activeLocation.note}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="absolute inset-y-0 right-0 hidden w-[42%] overflow-hidden md:block">
+                    <img
+                      src={activeLocation.image}
+                      alt={activeLocation.name}
+                      className="h-full w-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-linear-to-r from-white via-white/72 to-white/5" />
                   </div>
                 </div>
               </div>
 
-              <div className="absolute inset-y-0 right-0 hidden w-[42%] overflow-hidden md:block">
-                <img
-                  src={activeLocation.image}
-                  alt={activeLocation.name}
-                  className="h-full w-full object-cover"
-                />
-                <div className="absolute inset-0 bg-linear-to-r from-white via-white/72 to-white/5" />
-              </div>
-            </div>
-          </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+                {weekDays.map((day) => {
+                  const holidayName = holidayMap[day.dateKey];
+                  const isHoliday = Boolean(holidayName);
+                  const dayPlan = normalizeDayPlan(weeklyPlan[day.dateKey]);
+                  const dayMenus = getMenusByDay(day.dateKey);
+                  const totalDayItems = getDayMenuIds(dayPlan).length;
+                  const isFilled = totalDayItems > 0;
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
-            {weekDays.map((day) => {
-              const holidayName = holidayMap[day.dateKey];
-              const isHoliday = Boolean(holidayName);
-              const dayPlan = normalizeDayPlan(weeklyPlan[day.dateKey]);
-              const dayMenus = getMenusByDay(day.dateKey);
-              const totalDayItems = getDayMenuIds(dayPlan).length;
-              const isFilled = totalDayItems > 0;
-
-              return (
-                <div
-                  key={day.dateKey}
-                  className={`min-h-[250px] rounded-[24px] border p-3 transition-all ${
-                    isHoliday
-                      ? "border-red-200 bg-red-50/45"
-                      : day.isToday
-                        ? "border-forest-500 bg-white shadow-[0_18px_32px_rgba(46,125,50,0.10)]"
-                        : isFilled
-                          ? "border-forest-200 bg-forest-50/35"
-                          : "border-gray-200 bg-white/90"
-                  } hover:-translate-y-0.5 hover:shadow-md`}
-                >
-                  <div className="mb-3 flex items-start justify-between">
-                    <div>
-                      <p
-                        className={`text-sm font-bold ${
-                          day.isToday ? "text-forest-800" : "text-gray-700"
-                        }`}
-                      >
-                        {day.dayLabel}
-                      </p>
-                      <p className="text-xs text-gray-400">{day.dateLabel}</p>
-                      <p className="mt-1 text-[10px] font-medium text-forest-700/70">
-                        {activeLocation.name}
-                      </p>
-                    </div>
-
-                    {day.isToday && (
-                      <span className="rounded-full bg-forest-100 px-2 py-1 text-[10px] font-bold text-forest-700">
-                        Hari Ini
-                      </span>
-                    )}
-                    {isHoliday && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-1 text-[10px] font-bold text-red-700">
-                        <CalendarDays className="h-3 w-3" />
-                        Libur
-                      </span>
-                    )}
-                  </div>
-
-                  {isHoliday ? (
-                    <div className="flex min-h-[176px] flex-col items-center justify-center rounded-[20px] border border-dashed border-red-200 bg-white/70 px-3 py-5 text-center">
-                      <CalendarDays className="mb-3 h-8 w-8 text-red-500" />
-                      <p className="text-sm font-black uppercase tracking-[0.08em] text-red-600">
-                        Libur
-                      </p>
-                      <p className="mt-2 text-xs leading-5 text-red-500">
-                        {holidayName}
-                      </p>
-                    </div>
-                  ) : (
+                  return (
                     <div
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setDragOverTarget(day.dateKey);
-                      }}
-                      onDragLeave={() => {
-                        if (dragOverTarget === day.dateKey) {
-                          setDragOverTarget(null);
-                        }
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const menuId = Number(
-                          e.dataTransfer.getData("menu-id"),
-                        );
-                        if (menuId) assignMenuToDay(day.dateKey, menuId);
-                        setDragOverTarget(null);
-                      }}
-                      className={`min-h-[176px] rounded-[20px] border border-emerald-200 bg-emerald-50/40 px-2.5 py-2.5 transition-all ${
-                        dragOverTarget === day.dateKey
-                          ? "ring-2 ring-forest-300"
-                          : ""
-                      }`}
+                      key={day.dateKey}
+                      className={`min-h-[250px] rounded-[24px] border p-3 transition-all ${
+                        isHoliday
+                          ? "border-red-200 bg-red-50/45"
+                          : day.isToday
+                            ? "border-forest-500 bg-white shadow-[0_18px_32px_rgba(46,125,50,0.10)]"
+                            : isFilled
+                              ? "border-forest-200 bg-forest-50/35"
+                              : "border-gray-200 bg-white/90"
+                      } hover:-translate-y-0.5 hover:shadow-md`}
                     >
-                      <div className="mb-2 flex items-center gap-1.5">
-                        <UtensilsCrossed className="h-3.5 w-3.5 text-forest-700" />
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-gray-600">
-                          Menu Hari Ini
-                        </p>
+                      <div className="mb-3 flex items-start justify-between">
+                        <div>
+                          <p
+                            className={`text-sm font-bold ${
+                              day.isToday ? "text-forest-800" : "text-gray-700"
+                            }`}
+                          >
+                            {day.dayLabel}
+                          </p>
+                          <p className="text-xs text-gray-400">{day.dateLabel}</p>
+                          <p className="mt-1 text-[10px] font-medium text-forest-700/70">
+                            {activeLocation.name}
+                          </p>
+                        </div>
+
+                        {day.isToday && (
+                          <span className="rounded-full bg-forest-100 px-2 py-1 text-[10px] font-bold text-forest-700">
+                            Hari Ini
+                          </span>
+                        )}
+                        {isHoliday && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-1 text-[10px] font-bold text-red-700">
+                            <CalendarDays className="h-3 w-3" />
+                            Libur
+                          </span>
+                        )}
                       </div>
 
-                      {dayMenus.length === 0 ? (
-                        <div className="flex min-h-[126px] items-center justify-center rounded-[16px] border border-dashed border-emerald-200 bg-white/70 px-3 text-center">
-                          <p className="text-[10px] leading-5 text-gray-400">
-                            Drop menu ke sini
+                      {isHoliday ? (
+                        <div className="flex min-h-[176px] flex-col items-center justify-center rounded-[20px] border border-dashed border-red-200 bg-white/70 px-3 py-5 text-center">
+                          <CalendarDays className="mb-3 h-8 w-8 text-red-500" />
+                          <p className="text-sm font-black uppercase tracking-[0.08em] text-red-600">
+                            Libur
+                          </p>
+                          <p className="mt-2 text-xs leading-5 text-red-500">
+                            {holidayName}
                           </p>
                         </div>
                       ) : (
-                        <div className="space-y-1.5">
-                          {dayMenus.map((menu) => {
-                            const thumbUrl = resolveMenuImageUrl(
-                              menu.gambar_url,
+                        <div
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setDragOverTarget(day.dateKey);
+                          }}
+                          onDragLeave={() => {
+                            if (dragOverTarget === day.dateKey) {
+                              setDragOverTarget(null);
+                            }
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const menuId = Number(
+                              e.dataTransfer.getData("menu-id"),
                             );
-                            const displayName =
-                              sanitizeMenuName(menu.nama) || menu.nama;
+                            if (menuId) assignMenuToDay(day.dateKey, menuId);
+                            setDragOverTarget(null);
+                          }}
+                          className={`min-h-[176px] rounded-[20px] border border-emerald-200 bg-emerald-50/40 px-2.5 py-2.5 transition-all ${
+                            dragOverTarget === day.dateKey
+                              ? "ring-2 ring-forest-300"
+                              : ""
+                          }`}
+                        >
+                          <div className="mb-2 flex items-center gap-1.5">
+                            <UtensilsCrossed className="h-3.5 w-3.5 text-forest-700" />
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-600">
+                              Menu Hari Ini
+                            </p>
+                          </div>
 
-                            return (
-                              <div
-                                key={`${day.dateKey}-menu-${menu.id}`}
-                                className="overflow-hidden rounded-[16px] border border-gray-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-forest-200 hover:shadow-md"
-                              >
-                                <div className="flex gap-2 p-2">
-                                  {thumbUrl ? (
-                                    <img
-                                      src={thumbUrl}
-                                      alt={displayName}
-                                      className="h-14 w-16 shrink-0 rounded-xl object-cover"
-                                    />
-                                  ) : (
-                                    <span className="flex h-14 w-16 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-400">
-                                      <ChefHat className="h-5 w-5" />
-                                    </span>
-                                  )}
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-start justify-between gap-1">
-                                      <p className="line-clamp-2 text-[10px] font-bold leading-4 text-gray-700">
-                                        {displayName}
-                                      </p>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          removeMenuFromDay(
-                                            day.dateKey,
-                                            menu.id,
-                                          );
-                                        }}
-                                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                                        title="Hapus dari jadwal"
-                                      >
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </button>
-                                    </div>
-                                    <p className="mt-1 text-[9px] font-semibold text-gray-400">
-                                      {menu.kalori ?? 0} kkal
-                                    </p>
-                                    <div className="mt-1.5 grid grid-cols-3 gap-1">
-                                      {[
-                                        {
-                                          label: "P",
-                                          value: menu.protein ?? 0,
-                                          color: "text-emerald-700",
-                                        },
-                                        {
-                                          label: "K",
-                                          value: menu.karbohidrat ?? 0,
-                                          color: "text-violet-700",
-                                        },
-                                        {
-                                          label: "L",
-                                          value: menu.lemak ?? 0,
-                                          color: "text-amber-700",
-                                        },
-                                      ].map((item) => (
-                                        <span
-                                          key={item.label}
-                                          className="rounded-lg bg-emerald-50 px-1 py-1 text-center text-[8px] font-bold text-gray-500"
-                                        >
-                                          <span className={item.color}>
-                                            {item.label}
-                                          </span>{" "}
-                                          {item.value}g
+                          {dayMenus.length === 0 ? (
+                            <div className="flex min-h-[126px] items-center justify-center rounded-[16px] border border-dashed border-emerald-200 bg-white/70 px-3 text-center">
+                              <p className="text-[10px] leading-5 text-gray-400">
+                                Drop menu ke sini
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {dayMenus.map((menu) => {
+                                const thumbUrl = resolveMenuImageUrl(
+                                  menu.gambar_url,
+                                );
+                                const displayName =
+                                  sanitizeMenuName(menu.nama) || menu.nama;
+
+                                return (
+                                  <div
+                                    key={`${day.dateKey}-menu-${menu.id}`}
+                                    className="overflow-hidden rounded-[16px] border border-gray-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-forest-200 hover:shadow-md"
+                                  >
+                                    <div className="flex gap-2 p-2">
+                                      {thumbUrl ? (
+                                        <img
+                                          src={thumbUrl}
+                                          alt={displayName}
+                                          className="h-14 w-16 shrink-0 rounded-xl object-cover"
+                                        />
+                                      ) : (
+                                        <span className="flex h-14 w-16 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-400">
+                                          <ChefHat className="h-5 w-5" />
                                         </span>
-                                      ))}
+                                      )}
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-start justify-between gap-1">
+                                          <p className="line-clamp-2 text-[10px] font-bold leading-4 text-gray-700">
+                                            {displayName}
+                                          </p>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              removeMenuFromDay(
+                                                day.dateKey,
+                                                menu.id,
+                                              );
+                                            }}
+                                            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                            title="Hapus dari jadwal"
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </button>
+                                        </div>
+                                        <p className="mt-1 text-[9px] font-semibold text-gray-400">
+                                          {menu.kalori ?? 0} kkal
+                                        </p>
+                                        <div className="mt-1.5 grid grid-cols-3 gap-1">
+                                          {[
+                                            {
+                                              label: "P",
+                                              value: menu.protein ?? 0,
+                                              color: "text-emerald-700",
+                                            },
+                                            {
+                                              label: "K",
+                                              value: menu.karbohidrat ?? 0,
+                                              color: "text-violet-700",
+                                            },
+                                            {
+                                              label: "L",
+                                              value: menu.lemak ?? 0,
+                                              color: "text-amber-700",
+                                            },
+                                          ].map((item) => (
+                                            <span
+                                              key={item.label}
+                                              className="rounded-lg bg-emerald-50 px-1 py-1 text-center text-[8px] font-bold text-gray-500"
+                                            >
+                                              <span className={item.color}>
+                                                {item.label}
+                                              </span>{" "}
+                                              {item.value}g
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                              </div>
-                            );
-                          })}
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       )}
-                    </div>
-                  )}
 
-                  {!isHoliday && isFilled && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        clearDayPlan(day.dateKey);
-                      }}
-                      className="mt-3 w-full rounded-[16px] border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-bold text-emerald-700 hover:bg-emerald-100"
-                    >
-                      Hapus Semua Menu Hari Ini
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                      {!isHoliday && isFilled && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            clearDayPlan(day.dateKey);
+                          }}
+                          className="mt-3 w-full rounded-[16px] border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-bold text-emerald-700 hover:bg-emerald-100"
+                        >
+                          Hapus Semua Menu Hari Ini
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <div className="mb-5 flex min-h-[360px] flex-col items-center justify-center rounded-[28px] border border-dashed border-forest-200 bg-white/90 px-6 text-center shadow-sm">
+              <div className="flex h-18 w-18 items-center justify-center rounded-full bg-forest-50 text-forest-800 shadow-sm">
+                <Users className="h-9 w-9" />
+              </div>
+              <h4 className="mt-5 text-2xl font-black text-gray-900">
+                {distributionLocations.length === 0
+                  ? "Belum ada lokasi yang ditetapkan"
+                  : "Silahkan pilih lokasi terlebih dahulu"}
+              </h4>
+              <p className="mt-3 max-w-lg text-sm leading-7 text-gray-500">
+                {distributionLocations.length === 0
+                  ? "Tambahkan lokasi distribusi terlebih dahulu agar widget lokasi dan hari mingguan bisa ditampilkan."
+                  : "Pilih satu lokasi distribusi agar widget lokasi dan hari mingguan bisa muncul."}
+              </p>
+            </div>
+          )}
 
           <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-gray-500">
             <span className="inline-flex items-center gap-1">
@@ -3711,10 +3743,25 @@ export default function DashboardPage({
               </div>
             </div>
 
-            <div className="grid max-h-[58vh] grid-cols-1 gap-3 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-3">
-              {distributionLocations.map((location) => {
+            {distributionLocations.length === 0 ? (
+              <div className="flex min-h-[280px] items-center justify-center rounded-[24px] border border-dashed border-forest-100 bg-forest-50/50 px-6 text-center">
+                <div className="max-w-md">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-white text-forest-800 shadow-sm">
+                    <CalendarDays className="h-7 w-7" />
+                  </div>
+                  <h4 className="mt-4 text-lg font-bold text-gray-800">
+                    Belum ada lokasi yang ditetapkan
+                  </h4>
+                  <p className="mt-2 text-sm leading-6 text-gray-500">
+                    Tambahkan lokasi distribusi terlebih dahulu agar widget dan
+                    jadwal mingguan bisa dipakai.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="grid max-h-[58vh] grid-cols-1 gap-3 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-3">
+                {distributionLocations.map((location) => {
                 const isSelected = location.id === activeLocationId;
-                const isScheduled = Boolean(savedScheduleMap[location.id]);
 
                 return (
                   <div
@@ -3766,8 +3813,9 @@ export default function DashboardPage({
                     </div>
                   </div>
                 );
-              })}
-            </div>
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
