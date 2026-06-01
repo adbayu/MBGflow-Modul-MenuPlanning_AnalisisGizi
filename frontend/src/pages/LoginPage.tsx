@@ -153,7 +153,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
             <div className="mt-8 rounded-2xl bg-forest-900/5 px-5 py-4 text-center">
               <p className="text-xs font-semibold uppercase tracking-wider text-forest-800/60">
-                Default Access
+                Database Access
               </p>
               <p className="mt-1 font-mono text-sm text-forest-900">
                 Jhon Doe / admin123

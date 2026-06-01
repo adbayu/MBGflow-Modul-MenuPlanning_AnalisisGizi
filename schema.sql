@@ -113,6 +113,18 @@ CREATE TABLE IF NOT EXISTS weekly_plan_saved_status (
   FOREIGN KEY (location_id) REFERENCES distribution_locations(id) ON DELETE CASCADE
 );
 
+-- Tabel user aplikasi untuk login dashboard
+CREATE TABLE IF NOT EXISTS users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(120) NOT NULL UNIQUE,
+  password VARCHAR(255) NOT NULL,
+  nama VARCHAR(160) NOT NULL,
+  role VARCHAR(80) NOT NULL DEFAULT 'Ahli Gizi',
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
 -- =====================================================
 -- Mock Data
 -- =====================================================
@@ -173,6 +185,9 @@ INSERT IGNORE INTO distribution_location_recipients
 ('posyandu-melati-balita', 'Ibu Hamil', '47 ibu hamil'),
 ('posyandu-mawar', 'Balita', '58 balita'),
 ('posyandu-mawar', 'Ibu Hamil', '62 ibu hamil');
+
+INSERT IGNORE INTO users (username, password, nama, role, is_active) VALUES
+('Jhon Doe', 'admin123', 'Jhon Doe', 'Ahli Gizi', 1);
 
 -- =====================================================
 -- Schema Additions: Kolom finansial & substitusi

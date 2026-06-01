@@ -1776,7 +1776,6 @@ export default function DashboardPage({
     if (!stats) return [];
 
     const totalMenus = Number(stats.total_menus || 0);
-    const activeMenus = Number(stats.active_menus || 0);
     const locationCount = distributionLocations.length;
     const latestLocation =
       distributionLocations[distributionLocations.length - 1];
@@ -1839,10 +1838,21 @@ export default function DashboardPage({
         (day) => getDayMenuIds(normalizeDayPlan(day)).length > 0,
       );
     }).length;
+    const currentMonthKey = getMonthKey(new Date());
+    const scheduledLocationThisMonthCount = distributionLocations.filter(
+      (location) => {
+        const locationPlan = weeklyPlanByLocation[location.id] || {};
+        return Object.entries(locationPlan).some(
+          ([dateKey, day]) =>
+            dateKey.startsWith(currentMonthKey) &&
+            getDayMenuIds(normalizeDayPlan(day)).length > 0,
+        );
+      },
+    ).length;
 
     const completionPercent =
       locationCount > 0
-        ? Math.round((scheduledLocationCount / locationCount) * 100)
+        ? Math.round((scheduledLocationThisMonthCount / locationCount) * 100)
         : 0;
 
     const menuMeetAkgCount = menus.filter(evaluateMenuAkgStatus).length;
@@ -1850,9 +1860,9 @@ export default function DashboardPage({
 
     return [
       {
-        title: "Total Menu",
-        value: `${activeMenus}/${totalMenus}`,
-        subtitle: "Aktif / total menu",
+        title: "Total",
+        value: totalMenus,
+        subtitle: "Seluruh menu tercatat",
         insight:
           totalMenus > 0
             ? "Data menu live dari database."
@@ -1884,8 +1894,8 @@ export default function DashboardPage({
       },
       {
         title: "Jadwal Aktif",
-        value: `${scheduledLocationCount}/${locationCount}`,
-        subtitle: "Lokasi terjadwal",
+        value: scheduledLocationThisMonthCount,
+        subtitle: "Terisi untuk bulan ini",
         insight: `Completion ${completionPercent}%`,
         gradient: "from-[#ffffff] to-[#f7faf7]",
         iconBg: "bg-forest-100",
@@ -3692,7 +3702,11 @@ export default function DashboardPage({
                   Posyandu
                 </p>
                 <p className="mt-1 text-lg font-black text-forest-900">
-                  Balita & Ibu Hamil
+                  {
+                    distributionLocations.filter(
+                      (location) => location.type === "posyandu",
+                    ).length
+                  }
                 </p>
               </div>
             </div>
