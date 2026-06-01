@@ -3754,26 +3754,6 @@ export default function DashboardPage({
                         <p className="truncate text-sm font-bold text-gray-800">
                           {location.name}
                         </p>
-                        <p className="mt-1 text-xs font-semibold text-forest-700">
-                          {getLocationTargetLabel(location)} •{" "}
-                          {location.schedule}
-                        </p>
-                      </div>
-                      <div
-                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-bold ${
-                          isScheduled
-                            ? "border-forest-200 bg-forest-50 text-forest-800"
-                            : "border-gray-200 bg-white text-gray-500"
-                        }`}
-                      >
-                        {isScheduled ? (
-                          <CheckCircle2 className="h-3 w-3" />
-                        ) : (
-                          <Clock3 className="h-3 w-3" />
-                        )}
-                        {isScheduled
-                          ? "Sudah dijadwalkan"
-                          : "Belum dijadwalkan"}
                       </div>
                       <div className="rounded-[16px] border border-forest-100 bg-forest-50/70 px-3 py-2">
                         <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-forest-700/75">
