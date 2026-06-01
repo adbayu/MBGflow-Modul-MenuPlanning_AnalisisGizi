@@ -99,7 +99,6 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                   <input
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    required
                     className="w-full rounded-2xl border-0 bg-white/60 py-4 pl-12 pr-4 text-sm text-forest-900 ring-1 ring-forest-900/10 placeholder:text-forest-900/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-forest-600 transition-all"
                     placeholder="Contoh: Jhon Doe"
                   />
@@ -116,7 +115,6 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                     type={showPass ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    required
                     className="w-full rounded-2xl border-0 bg-white/60 py-4 pl-12 pr-12 text-sm text-forest-900 ring-1 ring-forest-900/10 placeholder:text-forest-900/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-forest-600 transition-all"
                     placeholder="Masukkan password"
                   />

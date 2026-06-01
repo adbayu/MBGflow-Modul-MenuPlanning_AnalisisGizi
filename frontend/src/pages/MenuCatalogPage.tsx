@@ -294,6 +294,32 @@ export default function MenuCatalogPage({ onNavigate }: MenuCatalogPageProps) {
         <div className="card flex min-h-[240px] items-center justify-center rounded-[30px] p-8 text-sm text-ink-400">
           Memuat menu...
         </div>
+      ) : filtered.length === 0 ? (
+        <div className="card flex min-h-[280px] items-center justify-center rounded-[30px] border border-dashed border-forest-100 bg-white p-8 text-center shadow-sm">
+          <div className="max-w-md">
+            <ChefHat className="mx-auto h-11 w-11 text-forest-800" />
+            <h3 className="mt-4 text-lg font-bold text-ink-700">
+              {menus.length === 0 ? "Belum Ada Menu" : "Menu tidak ditemukan"}
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-ink-400">
+              {menus.length === 0
+                ? "Tambahkan menu terlebih dahulu agar katalog dapat menampilkan data."
+                : "Ubah kata kunci pencarian atau filter kategori untuk menampilkan menu."}
+            </p>
+            {menus.length === 0 && (
+              <button
+                onClick={() => {
+                  clearEditTargetMenuId();
+                  onNavigate("recipe-builder");
+                }}
+                className="mt-5 inline-flex items-center gap-2 rounded-[18px] bg-forest-800 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-forest-900"
+              >
+                <Plus className="h-4 w-4" />
+                Tambah Menu
+              </button>
+            )}
+          </div>
+        </div>
       ) : (
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-2">
           {filtered.map((menu) => {
@@ -520,12 +546,12 @@ export default function MenuCatalogPage({ onNavigate }: MenuCatalogPageProps) {
                     Ringkasan singkat, detail nutrisi, dan rekomendasi tindakan.
                   </p>
                 </div>
-              <button
-                onClick={() => setAnalyzingId(null)}
-                className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-500 transition hover:bg-forest-50 hover:text-forest-800"
-              >
-                Tutup
-              </button>
+                <button
+                  onClick={() => setAnalyzingId(null)}
+                  className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-500 transition hover:bg-forest-50 hover:text-forest-800"
+                >
+                  Tutup
+                </button>
               </div>
             </div>
             <div className="overflow-y-auto">

@@ -1859,10 +1859,7 @@ export default function DashboardPage({
         title: "Total",
         value: totalMenus,
         subtitle: "Seluruh menu tercatat",
-        insight:
-          totalMenus > 0
-            ? "Data menu live dari database."
-            : "Tambahkan menu pertama.",
+        insight: totalMenus > 0 ? "Total Menu." : "Tambahkan menu pertama.",
         gradient: "from-forest-950 via-forest-900 to-forest-700",
         iconBg: "bg-white/10",
         icon: UtensilsCrossed,
@@ -2508,7 +2505,7 @@ export default function DashboardPage({
                               Komposisi Makronutrien
                             </p>
                             <h3 className="mt-1 text-lg font-black text-ink-700">
-                              Donut Macro Composition
+                              Macro Composition
                             </h3>
                           </div>
                           <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-forest-800 shadow-sm">
