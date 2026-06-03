@@ -1,4 +1,4 @@
-﻿# EMBEGE — Menu Planning (MBG 2.0)
+﻿# MBGflow— Menu Planning And Nutritioin Analysis (AI-Driven)
 
 Sistem web untuk perencanaan menu dan kepatuhan gizi pada program Makan Bergizi Gratis (MBG 2.0). Dibangun untuk sekolah (SD/SMP), Posyandu, dan fasilitas kesehatan ibu.
 
