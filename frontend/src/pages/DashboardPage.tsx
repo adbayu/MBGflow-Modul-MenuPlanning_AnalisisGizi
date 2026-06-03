@@ -55,6 +55,7 @@ import {
   saveMenuMetaMap,
   type MenuMetaEntry,
   type MenuPorsi,
+  type MenuType,
 } from "../utils/menuMeta";
 
 const API = "http://localhost:3002/api/menu";
@@ -64,6 +65,7 @@ const WEEKLY_PLAN_STORAGE_KEY = "mbg_weekly_plan_v1";
 const WEEKLY_PLAN_BY_LOCATION_STORAGE_KEY = "mbg_weekly_plan_by_location_v1";
 const SAVED_WEEKLY_LOCATION_STORAGE_KEY = "mbg_saved_weekly_location_v1";
 const WEEKLY_PERIOD_STORAGE_KEY = "mbg_weekly_period_anchor_v1";
+const PLATE_MENU_KEY = "mbg_plate_menu_ids_v1";
 
 async function readJsonResponse<T>(res: Response, fallbackMessage: string) {
   const text = await res.text();
@@ -506,6 +508,18 @@ function getPorsiBadgeClass(porsi: MenuPorsi) {
     : "bg-sky-100 text-sky-700";
 }
 
+function getTypeBadgeClass(type: MenuType) {
+  return type === "minuman"
+    ? "bg-cyan-100 text-cyan-700"
+    : "bg-emerald-100 text-emerald-700";
+}
+
+function getKelompokBadgeClass(kategori: Menu["kategori"]) {
+  if (kategori === "Siswa") return "bg-blue-100 text-blue-700";
+  if (kategori === "Balita") return "bg-pink-100 text-pink-700";
+  return "bg-amber-100 text-amber-700";
+}
+
 function getAkgStatus(percent: number) {
   // New green-based semantic scale per design spec
   if (percent < 70) {
@@ -791,10 +805,6 @@ function getLocationRecipientLabel(location: DistributionLocation) {
   return location.recipients.map((recipient) => recipient.label).join(" & ");
 }
 
-function getLocationTargetLabel(location: DistributionLocation) {
-  return location.recipients.map((recipient) => recipient.target).join(" + ");
-}
-
 function parseTargetCount(raw: string) {
   const match = String(raw || "").match(/\d+/g);
   if (!match) return 0;
@@ -851,7 +861,16 @@ export default function DashboardPage({
     "all",
   );
   const [selectedMenuId, setSelectedMenuId] = useState<number | null>(null);
-  const [plateMenuIds, setPlateMenuIds] = useState<number[]>([]);
+  const [plateMenuIds, setPlateMenuIds] = useState<number[]>(() => {
+    const stored = localStorage.getItem(PLATE_MENU_KEY);
+    if (!stored) return [];
+    try {
+      const parsed = JSON.parse(stored);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
   const [distributionLocations, setDistributionLocations] = useState<
     DistributionLocation[]
   >([]);
@@ -940,7 +959,6 @@ export default function DashboardPage({
 
         if (list.length > 0) {
           setSelectedMenuId(list[0].id);
-          setPlateMenuIds([list[0].id]);
         }
       })
       .catch(console.error)
@@ -1277,6 +1295,14 @@ export default function DashboardPage({
     return result;
   }, [menus, menuMetaMap]);
 
+  const resolvedMenuType = useMemo(() => {
+    const result: Record<number, MenuType> = {};
+    menus.forEach((menu) => {
+      result[menu.id] = menuMetaMap[menu.id]?.type || inferMenuType(menu);
+    });
+    return result;
+  }, [menus, menuMetaMap]);
+
   const totalScheduledCount = useMemo(
     () =>
       Object.values(weeklyPlan).reduce((acc, day) => {
@@ -1334,6 +1360,10 @@ export default function DashboardPage({
     setPlateAiError(null);
     setPlateAiLoading(false);
   }, [kelompok, plateMenuIds]);
+
+  useEffect(() => {
+    localStorage.setItem(PLATE_MENU_KEY, JSON.stringify(plateMenuIds));
+  }, [plateMenuIds]);
 
   useEffect(() => {
     const missingIds = plateMenuIds.filter(
@@ -2222,7 +2252,7 @@ export default function DashboardPage({
                       </div>
                       <div className="mt-4 max-w-md">
                         <h3 className="text-lg font-bold text-ink-700">
-                          Pilih menu untuk mulai analisis piringku
+                          No Menu Selected
                         </h3>
                         <p className="mt-2 text-sm leading-6 text-ink-400">
                           Belum ada data nutrisi untuk ditampilkan. Tambahkan
@@ -3399,7 +3429,7 @@ export default function DashboardPage({
         {loading ? (
           <p className="text-sm text-gray-400">Memuat menu...</p>
         ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-2">
             {filtered.map((m) => {
               const protein = Number(m.protein || 0);
               const karbo = Number(m.karbohidrat || 0);
@@ -3408,25 +3438,27 @@ export default function DashboardPage({
               const imageUrl = resolveMenuImageUrl(m.gambar_url);
               const menuPorsi =
                 resolvedMenuPorsi[m.id] || inferMenuPorsi(m.kalori);
+              const menuType = resolvedMenuType[m.id] || inferMenuType(m);
               const displayName = sanitizeMenuName(m.nama) || m.nama;
 
               return (
                 <motion.div
                   key={m.id}
-                  whileHover={{ y: -3 }}
+                  whileHover={{ y: -4 }}
+                  transition={{ duration: 0.2 }}
                   draggable
                   onDragStartCapture={(e) =>
                     handleCardDragStart(e as DragEvent<HTMLDivElement>, m.id)
                   }
                   onDragEnd={handleCardDragEnd}
-                  className={`touch-pan-y cursor-grab overflow-hidden rounded-[24px] border bg-white transition-all active:cursor-grabbing ${
+                  className={`card card-hover touch-pan-y cursor-grab overflow-hidden rounded-[30px] border bg-white transition-all active:cursor-grabbing ${
                     isOnPlate
                       ? "border-forest-400 shadow-md shadow-forest-100"
-                      : "border-gray-200 hover:shadow-md"
+                      : "border-forest-100/70"
                   } ${draggingMenuId === m.id ? "-rotate-1 scale-[0.985] ring-2 ring-forest-300 opacity-80 shadow-xl" : ""}`}
                   style={{ touchAction: "pan-y" }}
                 >
-                  <div className="relative h-28 overflow-hidden">
+                  <div className="relative h-52 overflow-hidden">
                     {imageUrl ? (
                       <img
                         src={imageUrl}
@@ -3434,35 +3466,44 @@ export default function DashboardPage({
                         className="h-full w-full object-cover"
                       />
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-linear-to-br from-gray-100 to-gray-50 text-gray-300">
+                      <div className="flex h-full w-full items-center justify-center bg-[linear-gradient(180deg,#edf2ed_0%,#f7f9f7_100%)] text-gray-300">
                         <ChefHat className="h-10 w-10" />
                       </div>
                     )}
-                    <div className="absolute inset-0 bg-linear-to-t from-black/35 to-transparent" />
+                    <div className="absolute inset-0 bg-linear-to-t from-black/55 via-black/10 to-transparent" />
                     {isOnPlate && (
-                      <span className="absolute right-2 top-2 rounded-full bg-forest-600 px-2 py-0.5 text-[9px] font-bold text-white">
+                      <span className="absolute right-3 top-3 rounded-full bg-forest-600 px-3 py-1 text-[10px] font-bold text-white shadow-sm">
                         Di Piringku
                       </span>
                     )}
-                    <div className="absolute bottom-2 left-3 flex gap-1">
+                    <div className="absolute bottom-3 left-3 flex flex-wrap gap-1.5">
                       <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${getPorsiBadgeClass(menuPorsi)}`}
+                        className={`table-chip ${getKelompokBadgeClass(m.kategori)}`}
+                      >
+                        {m.kategori}
+                      </span>
+                      <span
+                        className={`table-chip ${getPorsiBadgeClass(menuPorsi)}`}
                       >
                         {getPorsiLabel(menuPorsi)}
+                      </span>
+                      <span
+                        className={`table-chip ${getTypeBadgeClass(menuType)}`}
+                      >
+                        {menuType === "minuman" ? "Minuman" : "Makanan"}
                       </span>
                     </div>
                   </div>
 
-                  <div className="p-3">
+                  <div className="space-y-4 p-5">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-bold text-gray-800">
+                        <p className="truncate text-lg font-bold text-ink-700">
                           {displayName}
                         </p>
-                        <p className="mt-0.5 text-[11px] text-gray-500 inline-flex items-center gap-2">
-                          Kategori {m.kategori} ·{" "}
+                        <p className="mt-1 inline-flex items-center gap-2 text-[13px] text-ink-400">
                           <CalorieIcon className="h-3 w-3 text-orange-600" />{" "}
-                          {m.kalori ?? 0} kkal
+                          {m.kalori ?? 0} kkal per porsi
                         </p>
                       </div>
 
@@ -3470,22 +3511,46 @@ export default function DashboardPage({
                         protein={protein}
                         karbo={karbo}
                         lemak={lemak}
-                        size={34}
+                        size={42}
                       />
                     </div>
 
-                    <div className="mt-2 flex gap-1">
+                    <div className="surface-muted rounded-[20px] px-4 py-3 text-[12px] font-semibold text-ink-400">
+                      Seret card ini ke slot mingguan.
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2.5">
                       {[
-                        { label: "P", value: protein, color: "#10b981" },
-                        { label: "K", value: karbo, color: "#8b5cf6" },
-                        { label: "L", value: lemak, color: "#f59e0b" },
+                        {
+                          label: "Protein",
+                          short: "P",
+                          value: protein,
+                          color: "#2e7d32",
+                        },
+                        {
+                          label: "Karbo",
+                          short: "K",
+                          value: karbo,
+                          color: "#60a5fa",
+                        },
+                        {
+                          label: "Lemak",
+                          short: "L",
+                          value: lemak,
+                          color: "#f59e0b",
+                        },
                       ].map((n) => (
-                        <div key={n.label} className="flex-1">
-                          <div className="mb-0.5 flex justify-between text-[8px] text-gray-400">
-                            <span>{n.label}</span>
+                        <div
+                          key={n.label}
+                          className="rounded-[20px] border border-ink-100 bg-white p-3 shadow-sm"
+                        >
+                          <div className="mb-2 flex items-center justify-between text-[11px] text-ink-400">
+                            <span className="font-bold text-ink-500">
+                              {n.short}
+                            </span>
                             <span>{n.value}g</span>
                           </div>
-                          <div className="h-1 overflow-hidden rounded-full bg-gray-100">
+                          <div className="h-1.5 overflow-hidden rounded-full bg-ink-100">
                             <div
                               className="h-full rounded-full"
                               style={{
@@ -3498,11 +3563,6 @@ export default function DashboardPage({
                       ))}
                     </div>
 
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <p className="text-[10px] font-medium text-gray-400">
-                        Seret card ini ke slot mingguan.
-                      </p>
-                    </div>
                   </div>
                 </motion.div>
               );
