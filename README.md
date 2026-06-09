@@ -1,6 +1,6 @@
 ﻿# MBGflow— Menu Planning And Nutritioin Analysis (AI-Driven)
 
-Sistem web untuk perencanaan menu dan kepatuhan gizi pada program Makan Bergizi Gratis (MBG 2.0). Dibangun untuk sekolah (SD/SMP), Posyandu, dan fasilitas kesehatan ibu.
+Sistem web berbasis microservice untuk modul perencanaan menu dan kepatuhan gizi pada program Makan Bergizi Gratis. Dibangun untuk sekolah
 
 ## Ringkasan cepat
 
