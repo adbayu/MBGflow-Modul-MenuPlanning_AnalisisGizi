@@ -98,6 +98,7 @@ export interface AIAnalysisResult {
   target_key?: string;
   target_label?: string;
   target_focus?: string;
+  menu_role?: "main_menu" | "drink" | "support_drink";
   macro_distribution?: {
     protein_pct: number;
     karbohidrat_pct: number;

@@ -733,6 +733,7 @@ router.post("/:id/analyze", async (req, res) => {
       targetKey: req.body?.targetKey || req.body?.target_key,
       kategori: menu.kategori,
       deskripsi: menu.deskripsi,
+      menuType: req.body?.menuType || req.body?.menu_type,
       manualNutrients: manualRows,
     });
 

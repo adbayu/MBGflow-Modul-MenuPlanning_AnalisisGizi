@@ -558,6 +558,14 @@ export default function MenuCatalogPage({ onNavigate }: MenuCatalogPageProps) {
               <AIAnalysisPanel
                 menuId={analyzingId}
                 menuNama={menus.find((m) => m.id === analyzingId)?.nama || ""}
+                menuType={
+                  (() => {
+                    const activeMenu = menus.find((m) => m.id === analyzingId);
+                    return activeMenu
+                      ? resolveMenuType(activeMenu, menuMetaMap)
+                      : undefined;
+                  })()
+                }
                 onAnalysisSaved={() => setAnalysisVersion((v) => v + 1)}
               />
             </div>

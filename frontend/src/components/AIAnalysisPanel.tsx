@@ -43,12 +43,14 @@ async function readJsonResponse<T>(res: Response, fallbackMessage: string) {
 interface AIAnalysisPanelProps {
   menuId: number;
   menuNama: string;
+  menuType?: "makanan" | "minuman";
   onAnalysisSaved?: (menuId: number) => void;
 }
 
 export default function AIAnalysisPanel({
   menuId,
   menuNama,
+  menuType,
   onAnalysisSaved,
 }: AIAnalysisPanelProps) {
   const [analysis, setAnalysis] = useState<AIAnalysisResult | null>(null);
@@ -72,7 +74,11 @@ export default function AIAnalysisPanel({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API}/${menuId}/analyze`, { method: "POST" });
+      const res = await fetch(`${API}/${menuId}/analyze`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ menuType }),
+      });
       const data = await readJsonResponse<AIAnalysisResult>(
         res,
         "Gagal menganalisis",

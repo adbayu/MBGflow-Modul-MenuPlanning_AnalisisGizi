@@ -19,7 +19,7 @@ export interface MenuEditLogEntry {
 }
 
 export const MENU_META_STORAGE_KEY = "mbg_menu_meta_v1";
-export const AI_ANALYSIS_CACHE_STORAGE_KEY = "mbg_ai_analysis_cache_v1";
+export const AI_ANALYSIS_CACHE_STORAGE_KEY = "mbg_ai_analysis_cache_v2";
 export const MENU_EDIT_TARGET_STORAGE_KEY = "mbg_edit_menu_id_v1";
 export const MENU_EDIT_LOG_STORAGE_KEY = "mbg_menu_edit_logs_v1";
 

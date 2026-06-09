@@ -2084,14 +2084,14 @@ export default function DashboardPage({
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: idx * 0.06 }}
-                  className={`relative cursor-default overflow-hidden rounded-[30px] border p-6 transition-all hover:-translate-y-1 ${
+                  className={`relative cursor-default overflow-hidden rounded-[30px] border p-6 transition-all hover:-translate-y-1 hover:shadow-2xl ${
                     isPrimary
                       ? `bg-linear-to-br ${widget.gradient} border-white/10 text-white shadow-[0_24px_54px_rgba(23,59,35,0.22)]`
-                      : `bg-linear-to-br ${widget.gradient} border-ink-100 text-ink-700 shadow-[0_16px_36px_rgba(36,49,39,0.07)]`
+                      : `night-panel-accent bg-linear-to-br ${widget.gradient} border-ink-100 text-ink-700 shadow-[0_16px_36px_rgba(36,49,39,0.07)]`
                   }`}
                 >
                   <Icon
-                    className={`pointer-events-none absolute -bottom-4 -right-4 h-24 w-24 ${widget.watermarkColor}`}
+                    className={`pointer-events-none absolute -bottom-6 -right-6 h-32 w-32 ${widget.watermarkColor} opacity-20`}
                   />
                   <div
                     className={`absolute right-0 top-0 h-32 w-32 translate-x-1/2 -translate-y-1/2 rounded-full ${
@@ -2114,21 +2114,21 @@ export default function DashboardPage({
                         />
                       </div>
                     </div>
-                    <p className="mb-1 text-3xl font-black leading-tight">
+                    <p className="mb-1 text-4xl font-black leading-tight">
                       {widget.value}
                     </p>
                     <p
-                      className={`text-sm font-medium leading-5 ${
-                        isPrimary ? "text-white/60" : "text-ink-400"
+                      className={`text-sm font-semibold leading-5 ${
+                        isPrimary ? "text-white/80" : "text-ink-600"
                       }`}
                     >
                       {widget.subtitle}
                     </p>
                     <p
-                      className={`mt-3 border-t pt-3 text-xs font-semibold leading-5 ${
+                      className={`mt-3 border-t pt-3 text-xs font-bold leading-5 ${
                         isPrimary
-                          ? "border-white/10 text-white/72"
-                          : "border-forest-100 text-forest-800"
+                          ? "border-white/20 text-white/90"
+                          : "border-forest-200 text-forest-900"
                       }`}
                     >
                       {widget.insight}
@@ -2146,7 +2146,7 @@ export default function DashboardPage({
               transition={{ delay: 0.15 }}
               className="card overflow-hidden rounded-[34px] border border-ink-100/60 bg-white/95 shadow-sm"
             >
-              <div className="bg-[linear-gradient(135deg,#ffffff_0%,#f7fbf7_55%,#eef8ef_100%)] p-4 sm:p-6">
+              <div className="night-panel-accent bg-[linear-gradient(135deg,#ffffff_0%,#f7fbf7_55%,#eef8ef_100%)] p-4 sm:p-6">
                 <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                   <div>
                     <span className="inline-flex items-center gap-2 rounded-full border border-forest-100 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-forest-800 shadow-sm">
@@ -2161,7 +2161,7 @@ export default function DashboardPage({
                       nutrisi terhadap target AKG.
                     </p>
                   </div>
-                  <div className="rounded-[24px] border border-forest-100 bg-white/90 px-4 py-3 shadow-sm">
+                  <div className="night-surface rounded-[24px] border border-forest-100 bg-white/90 px-4 py-3 shadow-sm">
                     <div className="flex items-center gap-3">
                       <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-forest-50 text-forest-800">
                         <Target className="h-5 w-5" />
@@ -2202,7 +2202,7 @@ export default function DashboardPage({
                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto_auto]">
                   <button
                     onClick={() => setShowPlateMenuModal(true)}
-                    className="flex min-h-14 items-center justify-between gap-3 rounded-[22px] border border-ink-100 bg-white px-4 py-3 text-left text-sm text-gray-700 shadow-sm transition hover:border-forest-200 hover:bg-forest-50"
+                    className="night-surface flex min-h-14 items-center justify-between gap-3 rounded-[22px] border border-ink-100 bg-white px-4 py-3 text-left text-sm text-gray-700 shadow-sm transition hover:border-forest-200 hover:bg-forest-50"
                   >
                     <span className="min-w-0 truncate font-semibold">
                       {selectedMenuId
@@ -2326,7 +2326,7 @@ export default function DashboardPage({
                           return (
                             <div
                               key={menu.id}
-                              className="grid overflow-hidden rounded-[28px] border border-ink-100 bg-white shadow-sm sm:grid-cols-[180px_1fr]"
+                              className="night-surface grid overflow-hidden rounded-[28px] border border-ink-100 bg-white shadow-sm sm:grid-cols-[180px_1fr]"
                             >
                               <div className="relative min-h-52 bg-forest-50 sm:min-h-full">
                                 {imageUrl ? (
@@ -2340,7 +2340,7 @@ export default function DashboardPage({
                                     <ChefHat className="h-12 w-12" />
                                   </div>
                                 )}
-                                <div className="absolute left-3 top-3 rounded-full bg-white/92 px-3 py-1.5 text-xs font-bold text-forest-900 shadow-sm">
+                                <div className="night-chip absolute left-3 top-3 rounded-full bg-white/92 px-3 py-1.5 text-xs font-bold text-forest-900 shadow-sm">
                                   1 Porsi
                                 </div>
                               </div>
@@ -2528,7 +2528,7 @@ export default function DashboardPage({
                         </div>
                       </div>
 
-                      <div className="rounded-[30px] border border-ink-100 bg-[linear-gradient(180deg,#ffffff_0%,#f6fbf7_100%)] p-5 shadow-sm">
+                      <div className="night-panel-accent rounded-[30px] border border-ink-100 bg-[linear-gradient(180deg,#ffffff_0%,#f6fbf7_100%)] p-5 shadow-sm">
                         <div className="mb-4 flex items-center justify-between gap-3">
                           <div>
                             <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
@@ -2538,7 +2538,7 @@ export default function DashboardPage({
                               Macro Composition
                             </h3>
                           </div>
-                          <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-forest-800 shadow-sm">
+                          <span className="night-chip rounded-full bg-white px-3 py-1.5 text-xs font-bold text-forest-800 shadow-sm">
                             {Math.round(macroTotal)} g total
                           </span>
                         </div>
@@ -2569,7 +2569,7 @@ export default function DashboardPage({
                               return (
                                 <div
                                   key={slice.key}
-                                  className="rounded-[22px] border border-ink-100 bg-white px-4 py-3 shadow-sm"
+                                  className="night-surface rounded-[22px] border border-ink-100 bg-white px-4 py-3 shadow-sm"
                                 >
                                   <div className="flex items-center justify-between gap-3">
                                     <div className="flex items-center gap-3">
@@ -3127,14 +3127,14 @@ export default function DashboardPage({
 
           {hasActiveLocationSelection ? (
             <>
-              <div className="mb-5 overflow-hidden rounded-[26px] border border-forest-100 bg-white shadow-sm">
+              <div className="night-surface mb-5 overflow-hidden rounded-[26px] border border-forest-100 bg-white shadow-sm">
                 <div className="relative min-h-[150px] p-5">
                   <div className="relative z-10 max-w-2xl">
                     <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-forest-700/80">
                       Lokasi Distribusi
                     </p>
                     <div className="mt-3 flex items-start gap-3">
-                      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-forest-100 bg-forest-50 text-forest-800 shadow-sm">
+                        <div className="night-surface-strong flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-forest-100 bg-forest-50 text-forest-800 shadow-sm">
                         <Users className="h-6 w-6" />
                       </div>
                       <div className="min-w-0">
@@ -3258,7 +3258,7 @@ export default function DashboardPage({
                             if (menuId) assignMenuToDay(day.dateKey, menuId);
                             setDragOverTarget(null);
                           }}
-                          className={`min-h-[176px] rounded-[20px] border border-emerald-200 bg-emerald-50/40 px-2.5 py-2.5 transition-all ${
+                          className={`night-dropzone min-h-[176px] rounded-[20px] border border-emerald-200 bg-emerald-50/40 px-2.5 py-2.5 transition-all ${
                             dragOverTarget === day.dateKey
                               ? "ring-2 ring-forest-300"
                               : ""
@@ -3289,7 +3289,7 @@ export default function DashboardPage({
                                 return (
                                   <div
                                     key={`${day.dateKey}-menu-${menu.id}`}
-                                    className="overflow-hidden rounded-[16px] border border-gray-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-forest-200 hover:shadow-md"
+                                    className="night-surface overflow-hidden rounded-[16px] border border-gray-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-forest-200 hover:shadow-md"
                                   >
                                     <div className="flex gap-2 p-2">
                                       {thumbUrl ? (
@@ -4200,7 +4200,7 @@ export default function DashboardPage({
                 </div>
 
                 <div className="space-y-5">
-                  <div className="rounded-[28px] border border-forest-100 bg-linear-to-br from-forest-50 via-emerald-50 to-white p-5 shadow-[0_18px_45px_rgba(46,125,50,0.10)]">
+                  <div className="night-panel-accent rounded-[28px] border border-forest-100 bg-linear-to-br from-forest-50 via-emerald-50 to-white p-5 shadow-[0_18px_45px_rgba(46,125,50,0.10)]">
                     <div className="mb-4 flex items-center gap-3">
                       <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-forest-800 shadow-sm">
                         <Sparkles className="h-5 w-5" />

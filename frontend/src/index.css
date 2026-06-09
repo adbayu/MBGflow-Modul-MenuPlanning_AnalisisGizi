@@ -494,6 +494,79 @@
     background-color: rgba(34, 58, 44, 0.92) !important;
   }
 
+  body.night-mode .night-surface {
+    background: linear-gradient(
+      180deg,
+      rgba(19, 31, 24, 0.96),
+      rgba(12, 22, 17, 0.94)
+    ) !important;
+    border-color: rgba(129, 199, 132, 0.18) !important;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28) !important;
+  }
+
+  body.night-mode .night-surface-strong,
+  body.night-mode .night-chip {
+    background-color: rgba(28, 48, 36, 0.96) !important;
+    border-color: rgba(129, 199, 132, 0.22) !important;
+    color: #dff5e4 !important;
+  }
+
+  body.night-mode .night-panel-accent {
+    background-image: linear-gradient(
+      135deg,
+      rgba(18, 30, 23, 0.98),
+      rgba(14, 25, 19, 0.96) 55%,
+      rgba(22, 42, 30, 0.9)
+    ) !important;
+    border-color: rgba(129, 199, 132, 0.18) !important;
+  }
+
+  body.night-mode .night-dropzone {
+    background-color: rgba(16, 48, 34, 0.34) !important;
+    border-color: rgba(52, 211, 153, 0.28) !important;
+  }
+
+  body.night-mode .bg-emerald-50,
+  body.night-mode .bg-emerald-100,
+  body.night-mode .bg-sky-50,
+  body.night-mode .bg-violet-50,
+  body.night-mode .bg-amber-50,
+  body.night-mode .bg-orange-100,
+  body.night-mode .bg-cyan-100 {
+    background-color: rgba(30, 54, 39, 0.9) !important;
+  }
+
+  body.night-mode .border-emerald-50,
+  body.night-mode .border-emerald-100,
+  body.night-mode .border-emerald-200,
+  body.night-mode .border-forest-100,
+  body.night-mode .border-forest-200,
+  body.night-mode .border-amber-100 {
+    border-color: rgba(129, 199, 132, 0.18) !important;
+  }
+
+  body.night-mode .text-emerald-600,
+  body.night-mode .text-emerald-700,
+  body.night-mode .text-emerald-800,
+  body.night-mode .text-forest-700,
+  body.night-mode .text-forest-800,
+  body.night-mode .text-forest-900,
+  body.night-mode .text-sky-700,
+  body.night-mode .text-violet-700,
+  body.night-mode .text-amber-700,
+  body.night-mode .text-orange-700,
+  body.night-mode .text-cyan-700 {
+    color: #bff0c8 !important;
+  }
+
+  body.night-mode .page-shell [class*="from-white"],
+  body.night-mode .page-shell [class*="via-white"],
+  body.night-mode .page-shell [class*="to-white"] {
+    --tw-gradient-from: rgba(19, 31, 24, 0.98) !important;
+    --tw-gradient-via: rgba(16, 28, 21, 0.86) !important;
+    --tw-gradient-to: rgba(12, 22, 17, 0.12) !important;
+  }
+
   body.night-mode .login-shell {
     background:
       radial-gradient(

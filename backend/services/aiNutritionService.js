@@ -450,6 +450,7 @@ function buildPrompt(
   overallStatus,
   macroDistribution,
   warnings,
+  menuRole,
 ) {
   const nutritionLines = Object.values(analysis)
     .map((item) => {
@@ -476,11 +477,24 @@ function buildPrompt(
 
   const warningText =
     warnings.length > 0 ? warnings.map((w) => `- ${w}`).join("\n") : "- Data cukup untuk analisis.";
+  const isSupportDrink = menuRole === "support_drink";
+  const menuRoleText = isSupportDrink
+    ? "Minuman/menu pendukung (contoh susu), bukan menu utama lengkap. Nilai sebagai pelengkap gizi."
+    : "Menu utama/lauk-pangan yang dinilai sebagai porsi MBG mandiri.";
+  const drinkRules = isSupportDrink
+    ? `
+Aturan khusus minuman pendukung:
+- Jangan memaksa minuman seperti susu memenuhi target energi/makro menu utama sendirian.
+- Fokus pada kontribusi pendukung: protein, kalsium, vitamin/mineral, gula, lemak, keamanan porsi.
+- Kekurangan kalori/karbo/serat boleh disebut wajar untuk minuman pendukung.
+- Rekomendasi harus berupa cara memasangkan dengan menu utama, bukan menaikkan porsi minuman berlebihan.`
+    : "";
 
   return `Kamu adalah ahli gizi profesional program MBG Indonesia. Analisis menu sebagai nutrition reasoning engine, bukan komentar generik.
 
 DATA
 Nama menu: ${namaMenu}
+Peran menu: ${menuRoleText}
 Target: ${target.label}
 Fokus target: ${target.focus}
 Skor: ${overallScore}/100
@@ -518,7 +532,7 @@ Aturan:
 - Kaitkan analisis dengan target ${target.label}.
 - Bahas energi, distribusi makro, dominasi zat gizi, dan mikro yang tersedia.
 - Jika data belum lengkap, nyatakan analisis sementara.
-- Maksimal 5 rekomendasi paling penting.`;
+- Maksimal 5 rekomendasi paling penting.${drinkRules}`;
 }
 
 async function callGeminiAPI(payload) {
@@ -749,7 +763,20 @@ function formatIssue(issue) {
   return `${issue.label} ${issue.value} ${issue.unit} dari target ${issue.target} ${issue.unit} (${issue.percent}%)`;
 }
 
-function buildFallbackResult(namaMenu, target, nutrientIssues, analysis, warnings) {
+function inferMenuRole(namaMenu, menuContext = {}) {
+  const text = `${namaMenu || ""} ${menuContext.deskripsi || ""}`.toLowerCase();
+  const explicitType = String(menuContext.menuType || menuContext.menu_type || "").toLowerCase();
+  const isDrink =
+    explicitType === "minuman" ||
+    ["minum", "minuman", "jus", "teh", "susu", "smoothie", "sirup", "wedang"].some((keyword) =>
+      text.includes(keyword),
+    );
+  const isSupportDrink = isDrink && ["susu", "milk", "yoghurt", "yogurt", "jus", "smoothie"].some((keyword) => text.includes(keyword));
+
+  return isSupportDrink ? "support_drink" : isDrink ? "drink" : "main_menu";
+}
+
+function buildFallbackResult(namaMenu, target, nutrientIssues, analysis, warnings, menuRole) {
   const macroDistribution = getMacroDistribution(analysis);
   const sortedIssues = [...nutrientIssues].sort((a, b) => {
     const weight = { danger: 3, warning: 2, success: 1 };
@@ -758,7 +785,13 @@ function buildFallbackResult(namaMenu, target, nutrientIssues, analysis, warning
   const primaryIssue = sortedIssues[0];
   const macroIssues = sortedIssues.filter((i) => i.category === "macro");
   const microIssues = sortedIssues.filter((i) => i.category === "micro");
-  const recommendations = sortedIssues.slice(0, 5).map((issue) => {
+  const filteredIssues =
+    menuRole === "support_drink"
+      ? sortedIssues.filter(
+          (issue) => !["kalori", "karbohidrat", "serat"].includes(issue.label.toLowerCase()),
+        )
+      : sortedIssues;
+  const recommendations = filteredIssues.slice(0, 5).map((issue) => {
     const isHigh =
       issue.status === STATUS.mulaiBerlebih ||
       issue.status === STATUS.terlaluBerlebih;
@@ -780,7 +813,10 @@ function buildFallbackResult(namaMenu, target, nutrientIssues, analysis, warning
       jenis: "Gizi",
       nutrient: null,
       severity: "success",
-      pesan: `Komposisi "${namaMenu}" berada dalam rentang optimal untuk target ${target.label} pada data yang tersedia.`,
+      pesan:
+        menuRole === "support_drink"
+          ? `"${namaMenu}" layak sebagai menu pendukung untuk target ${target.label} pada data yang tersedia.`
+          : `Komposisi "${namaMenu}" berada dalam rentang optimal untuk target ${target.label} pada data yang tersedia.`,
       detail: null,
     });
   }
@@ -801,7 +837,9 @@ function buildFallbackResult(namaMenu, target, nutrientIssues, analysis, warning
           .join(", ")}.`
       : "Mikronutrien yang tersedia tidak menunjukkan masalah besar.";
   const macroDominance =
-    macroDistribution && macroDistribution.karbohidrat_pct >= 65
+    menuRole === "support_drink"
+      ? "Sebagai minuman pendukung, nilai utama ada pada kontribusi protein, kalsium, vitamin/mineral, dan kontrol gula."
+      : macroDistribution && macroDistribution.karbohidrat_pct >= 65
       ? "Karbohidrat tampak dominan, jadi porsi lauk protein dan sayur perlu dicek."
       : macroDistribution && macroDistribution.lemak_pct >= 35
         ? "Lemak relatif dominan, metode masak dan sumber minyak perlu dikendalikan."
@@ -810,20 +848,32 @@ function buildFallbackResult(namaMenu, target, nutrientIssues, analysis, warning
           : "Distribusi makro relatif terkendali pada data yang tersedia.";
 
   return {
-    message: `${warningPrefix}${issueText} ${macroText}`,
-    catatan: `${issueText} ${macroDominance} Fokus ${target.label}: ${target.focus}.`,
+    message:
+      menuRole === "support_drink"
+        ? `${warningPrefix}Menu ini terbaca sebagai minuman pendukung. ${issueText} ${macroText}`
+        : `${warningPrefix}${issueText} ${macroText}`,
+    catatan:
+      menuRole === "support_drink"
+        ? `${issueText} ${macroDominance} Kekurangan energi total masih bisa wajar bila dipasangkan dengan menu utama. Fokus ${target.label}: ${target.focus}.`
+        : `${issueText} ${macroDominance} Fokus ${target.label}: ${target.focus}.`,
     tips:
-      macroIssues.length > 0
+      menuRole === "support_drink"
+        ? "Pasangkan minuman ini dengan menu utama sumber energi, lauk protein, dan sayur; evaluasi terutama protein, kalsium, dan gula minuman."
+        : macroIssues.length > 0
         ? recommendations[0].pesan.replace(/^\[[^\]]+\]\s*/, "")
         : `${microText} Lengkapi data vitamin/mineral agar koreksi menu lebih presisi.`,
-    kesimpulan: `${warningPrefix}${namaMenu} ${
-      primaryIssue ? "perlu koreksi komposisi sebelum dinyatakan optimal" : "sudah layak pada data yang tersedia"
-    } untuk target ${target.label}.`,
+    kesimpulan:
+      menuRole === "support_drink"
+        ? `${warningPrefix}${namaMenu} lebih tepat dinilai sebagai menu pendukung, bukan menu utama mandiri, untuk target ${target.label}.`
+        : `${warningPrefix}${namaMenu} ${
+            primaryIssue ? "perlu koreksi komposisi sebelum dinyatakan optimal" : "sudah layak pada data yang tersedia"
+          } untuk target ${target.label}.`,
     recommendations,
   };
 }
 
 async function analyzeNutrition(nutrition, namaMenu, menuContext = {}) {
+  const menuRole = inferMenuRole(namaMenu, menuContext);
   const targetKey = canonicalTargetKey(
     menuContext.targetKey || menuContext.target || menuContext.kategori,
   );
@@ -855,6 +905,7 @@ async function analyzeNutrition(nutrition, namaMenu, menuContext = {}) {
       overallStatus,
       macroDistribution,
       warnings,
+      menuRole,
     ];
 
     const providers = [
@@ -917,6 +968,7 @@ async function analyzeNutrition(nutrition, namaMenu, menuContext = {}) {
       nutrientIssues,
       analysis,
       warnings,
+      menuRole,
     );
     poweredBy = "Rule-Based Nutrition Reasoning";
     aiEngine = "rule-based-nutrition-reasoning";
@@ -936,6 +988,7 @@ async function analyzeNutrition(nutrition, namaMenu, menuContext = {}) {
     target_key: targetKey,
     target_label: target.label,
     target_focus: target.focus,
+    menu_role: menuRole,
     macro_distribution: macroDistribution,
     data_quality: {
       is_complete: warnings.length === 0,
