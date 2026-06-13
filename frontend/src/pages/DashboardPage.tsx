@@ -92,7 +92,7 @@ async function readJsonResponse<T>(res: Response, fallbackMessage: string) {
   return data as T;
 }
 
-type Kelompok = "siswa" | "balita" | "ibu_hamil" | "ibu_menyusui" | "lansia";
+type Kelompok = "siswa" | "balita" | "ibu_hamil" | "ibu_menyusui"  ;
 const STANDAR: Record<
   Kelompok,
   {
@@ -119,13 +119,7 @@ const STANDAR: Record<
     karbo: 95,
     lemak: 24,
   },
-  lansia: {
-    label: "Lansia",
-    kalori: 520,
-    protein: 24,
-    karbo: 70,
-    lemak: 16,
-  },
+  
 };
 
 const AKG_MICRO_TARGETS: Record<
@@ -191,20 +185,7 @@ const AKG_MICRO_TARGETS: Record<
     kalium: { label: "Kalium", target: 1530, unit: "mg" },
     "omega 3": { label: "Omega-3", target: 0.42, unit: "g" },
   },
-  lansia: {
-    serat: { label: "Serat", target: 9, unit: "g" },
-    gula: { label: "Gula", target: 10, unit: "g", limitOnly: true },
-    "vitamin a": { label: "Vitamin A", target: 180, unit: "mcg" },
-    "vitamin c": { label: "Vitamin C", target: 22.5, unit: "mg" },
-    "vitamin d": { label: "Vitamin D", target: 6, unit: "mcg" },
-    kalsium: { label: "Kalsium", target: 360, unit: "mg" },
-    "zat besi": { label: "Zat Besi", target: 2.4, unit: "mg" },
-    zinc: { label: "Zinc", target: 3.3, unit: "mg" },
-    folat: { label: "Folat", target: 120, unit: "mcg" },
-    natrium: { label: "Natrium", target: 360, unit: "mg", limitOnly: true },
-    kalium: { label: "Kalium", target: 1410, unit: "mg" },
-    "omega 3": { label: "Omega-3", target: 0.33, unit: "g" },
-  },
+
 };
 
 const TARGET_TABS: Array<{ key: Kelompok; icon: typeof Users }> = [
@@ -212,7 +193,6 @@ const TARGET_TABS: Array<{ key: Kelompok; icon: typeof Users }> = [
   { key: "balita", icon: Baby },
   { key: "ibu_hamil", icon: HeartPulse },
   { key: "ibu_menyusui", icon: Milk },
-  { key: "lansia", icon: UserRound },
 ];
 
 interface DayPlan {
@@ -2178,7 +2158,7 @@ export default function DashboardPage({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                   {TARGET_TABS.map((tab) => {
                     const Icon = tab.icon;
                     return (
