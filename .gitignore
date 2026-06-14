@@ -23,3 +23,4 @@ docs/KATALON_SCRIPTS_AUTH.groovy
 .gitignore
 docs/KATALON_SCRIPTS_MENU_CATALOG.groovy
 docs/KATALON_TEST_CASES.md
+docs/sequence-diagram-pembuatan-menu.md
