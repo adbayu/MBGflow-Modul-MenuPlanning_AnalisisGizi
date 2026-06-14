@@ -567,6 +567,24 @@
     --tw-gradient-to: rgba(12, 22, 17, 0.12) !important;
   }
 
+  body.night-mode .page-shell .location-image-fade {
+    background-image: linear-gradient(
+      to right,
+      rgba(19, 31, 24, 0.98),
+      rgba(19, 31, 24, 0.68),
+      rgba(19, 31, 24, 0.04)
+    ) !important;
+  }
+
+  body.night-mode .page-shell .location-card-shade {
+    background-image: linear-gradient(
+      to top,
+      rgba(0, 0, 0, 0.28),
+      rgba(0, 0, 0, 0.04),
+      transparent
+    ) !important;
+  }
+
   body.night-mode .login-shell {
     background:
       radial-gradient(
