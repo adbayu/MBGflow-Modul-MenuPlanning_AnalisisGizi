@@ -703,3 +703,85 @@
     }
   }
 }
+
+  /* Night-mode hardcoded light utility fixes */
+  body.night-mode [class*="bg-white"] {
+    background-color: rgba(18, 30, 23, 0.94) !important;
+  }
+
+  body.night-mode [class*="from-white"],
+  body.night-mode [class*="to-white"],
+  body.night-mode [class*="via-white"],
+  body.night-mode [class*="bg-linear"],
+  body.night-mode [class*="bg-[linear-gradient"] {
+    background-image: linear-gradient(135deg, rgba(18, 30, 23, 0.96), rgba(12, 22, 17, 0.94)) !important;
+  }
+
+  body.night-mode .bg-forest-50,
+  body.night-mode .bg-forest-50\/50,
+  body.night-mode .bg-forest-50\/70,
+  body.night-mode .bg-emerald-50,
+  body.night-mode .bg-emerald-50\/70,
+  body.night-mode .bg-gray-50,
+  body.night-mode .bg-gray-100 {
+    background-color: rgba(24, 42, 31, 0.92) !important;
+  }
+
+  body.night-mode .border-white,
+  body.night-mode .border-white\/60,
+  body.night-mode .border-white\/70,
+  body.night-mode .border-white\/80,
+  body.night-mode .border-gray-100,
+  body.night-mode .border-gray-200,
+  body.night-mode .border-ink-100,
+  body.night-mode .border-forest-100,
+  body.night-mode .border-emerald-100 {
+    border-color: rgba(129, 199, 132, 0.18) !important;
+  }
+
+  body.night-mode .text-ink-700,
+  body.night-mode .text-gray-900,
+  body.night-mode .text-gray-800,
+  body.night-mode .text-gray-700,
+  body.night-mode .text-forest-950,
+  body.night-mode .text-forest-900,
+  body.night-mode .text-forest-800,
+  body.night-mode .text-emerald-800,
+  body.night-mode .text-emerald-700 {
+    color: #e8f3ea !important;
+  }
+
+  body.night-mode .text-ink-500,
+  body.night-mode .text-ink-400,
+  body.night-mode .text-gray-600,
+  body.night-mode .text-gray-500,
+  body.night-mode .text-gray-400,
+  body.night-mode .text-forest-700,
+  body.night-mode .text-emerald-600 {
+    color: #aebfaf !important;
+  }
+
+  body.night-mode input,
+  body.night-mode select,
+  body.night-mode textarea {
+    background: rgba(14, 25, 19, 0.96) !important;
+    border-color: rgba(129, 199, 132, 0.16) !important;
+    color: #e8f3ea !important;
+  }
+
+  body.night-mode input::placeholder,
+  body.night-mode textarea::placeholder {
+    color: #829183 !important;
+  }
+
+  body.night-mode .table-chip,
+  body.night-mode [class*="table-chip"] {
+    background: rgba(20, 36, 27, 0.95) !important;
+    border-color: rgba(129, 199, 132, 0.18) !important;
+    color: #dff0e2 !important;
+  }
+
+  body.night-mode .surface-muted {
+    background: rgba(13, 24, 18, 0.78) !important;
+    border-color: rgba(129, 199, 132, 0.14) !important;
+  }
