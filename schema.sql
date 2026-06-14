@@ -7,8 +7,9 @@
 CREATE TABLE IF NOT EXISTS menus (
   id INT AUTO_INCREMENT PRIMARY KEY,
   nama VARCHAR(255) NOT NULL,
-  kategori ENUM('Siswa', 'Balita', 'Ibu Hamil') NOT NULL,
+  kategori ENUM('Siswa', 'Balita', 'Ibu Hamil', 'Ibu Menyusui') NOT NULL,
   deskripsi TEXT,
+  cara_memasak VARCHAR(80) DEFAULT NULL,
   gambar_url VARCHAR(500) DEFAULT NULL,
   is_active TINYINT(1) DEFAULT 1,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -23,9 +24,15 @@ CREATE TABLE IF NOT EXISTS menu_ingredients (
   id INT AUTO_INCREMENT PRIMARY KEY,
   menu_id INT NOT NULL,
   bahan_baku_ref_id INT DEFAULT NULL,
+  raw_material_id VARCHAR(255) DEFAULT NULL,
   nama_bahan VARCHAR(255) NOT NULL,
   jumlah DECIMAL(10,2) NOT NULL,
   satuan VARCHAR(50) NOT NULL,
+  unit_snapshot VARCHAR(50) DEFAULT NULL,
+  quality_status_snapshot VARCHAR(100) DEFAULT NULL,
+  availability_status_snapshot VARCHAR(50) DEFAULT NULL,
+  price_updated_at_snapshot DATETIME DEFAULT NULL,
+  stock_checked_at DATETIME DEFAULT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (menu_id) REFERENCES menus(id) ON DELETE CASCADE
@@ -195,17 +202,24 @@ INSERT IGNORE INTO users (username, password, nama, role, is_active) VALUES
 
 -- Kolom baru untuk tabel menus
 ALTER TABLE menus ADD COLUMN IF NOT EXISTS harga_jual INT DEFAULT 0;
+ALTER TABLE menus ADD COLUMN IF NOT EXISTS cara_memasak VARCHAR(80) DEFAULT NULL;
 ALTER TABLE menus ADD COLUMN IF NOT EXISTS is_substituted TINYINT(1) DEFAULT 0;
 
 -- Kolom baru untuk menu_ingredients
 ALTER TABLE menu_ingredients ADD COLUMN IF NOT EXISTS harga_satuan INT DEFAULT 0 COMMENT 'Harga per satuan dalam rupiah';
+ALTER TABLE menu_ingredients ADD COLUMN IF NOT EXISTS raw_material_id VARCHAR(255) DEFAULT NULL COMMENT 'ID bahan baku dari raw material service';
+ALTER TABLE menu_ingredients ADD COLUMN IF NOT EXISTS unit_snapshot VARCHAR(50) DEFAULT NULL COMMENT 'Snapshot satuan bahan dari raw material service';
+ALTER TABLE menu_ingredients ADD COLUMN IF NOT EXISTS quality_status_snapshot VARCHAR(100) DEFAULT NULL COMMENT 'Snapshot status kualitas bahan';
+ALTER TABLE menu_ingredients ADD COLUMN IF NOT EXISTS availability_status_snapshot VARCHAR(50) DEFAULT NULL COMMENT 'Snapshot status stok saat validasi';
+ALTER TABLE menu_ingredients ADD COLUMN IF NOT EXISTS price_updated_at_snapshot DATETIME DEFAULT NULL COMMENT 'Waktu update harga dari raw material service';
+ALTER TABLE menu_ingredients ADD COLUMN IF NOT EXISTS stock_checked_at DATETIME DEFAULT NULL COMMENT 'Waktu cek stok ke raw material service';
 
 -- Migrasi kategori lama ke kategori distribusi MBG baru
 UPDATE menus SET kategori = 'Siswa' WHERE kategori IN ('Sarapan', 'Makan Siang', 'Makan Malam');
 -- Data migrasi kategori lama ke kategori utama
 UPDATE menus SET kategori = 'Siswa' WHERE kategori IN ('Sarapan', 'Makan Siang', 'Makan Malam', 'Porsi Besar');
 UPDATE menus SET kategori = 'Balita' WHERE kategori IN ('Snack', 'Minuman', 'Porsi Kecil');
-ALTER TABLE menus MODIFY COLUMN kategori ENUM('Siswa', 'Balita', 'Ibu Hamil') NOT NULL;
+ALTER TABLE menus MODIFY COLUMN kategori ENUM('Siswa', 'Balita', 'Ibu Hamil', 'Ibu Menyusui') NOT NULL;
 
 -- Update mock data dengan harga jual
 UPDATE menus SET harga_jual = 18000 WHERE id = 1;

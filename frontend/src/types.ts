@@ -6,10 +6,16 @@ export interface MenuIngredient {
   id?: number;
   menu_id?: number;
   bahan_baku_ref_id?: number | null;
+  raw_material_id?: string | null;
   nama_bahan: string;
   jumlah: number;
   satuan: string;
   harga_satuan?: number; // harga per satuan (Rp/kg atau Rp/liter)
+  unit_snapshot?: string | null;
+  quality_status_snapshot?: string | null;
+  availability_status_snapshot?: string | null;
+  stock_checked_at?: string | null;
+  qty_available?: number | null;
   subtotal?: number; // calculated: jumlah * harga_satuan (adjusted)
 }
 
@@ -33,7 +39,7 @@ export interface ManualMacronutrient {
   satuan: string;
 }
 
-export type MenuKategori = "Siswa" | "Balita" | "Ibu Hamil";
+export type MenuKategori = "Siswa" | "Balita" | "Ibu Hamil" | "Ibu Menyusui";
 
 export interface Menu {
   id: number;
@@ -42,6 +48,7 @@ export interface Menu {
   deskripsi: string | null;
   gambar_url: string | null;
   harga_jual: number;
+  cara_memasak?: string | null;
   is_active: number;
   is_substituted?: number;
   created_at: string;
@@ -164,6 +171,7 @@ export interface GeneratedMenu {
   nama_menu: string;
   deskripsi: string;
   metode_masak: string;
+  catatan_metode_masak?: string;
   estimasi_gizi: {
     kalori: number;
     protein: number;
@@ -174,8 +182,10 @@ export interface GeneratedMenu {
   };
   bahan_digunakan: Array<{
     nama: string;
+    raw_material_id?: string | null;
     jumlah: number;
     satuan: string;
+    harga_satuan?: number;
     catatan?: string;
   }>;
   bahan_kurang: Array<{

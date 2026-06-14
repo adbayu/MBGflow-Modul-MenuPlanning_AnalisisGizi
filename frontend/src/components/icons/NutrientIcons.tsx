@@ -124,7 +124,6 @@ export function NutrientAssetIcon({
       className={`inline-block object-contain ${className}`}
       loading="lazy"
       style={{
-        imageRendering: 'crisp-edges',
         imageRendering: '-webkit-optimize-contrast',
         backfaceVisibility: 'hidden',
         transform: 'translateZ(0)'

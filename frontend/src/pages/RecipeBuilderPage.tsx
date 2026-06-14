@@ -56,7 +56,7 @@ import {
 
 const API = "http://localhost:3002/api/menu";
 const API_ORIGIN = "http://localhost:3002";
-const KATEGORIS: MenuKategori[] = ["Siswa", "Balita", "Ibu Hamil"];
+const KATEGORIS: MenuKategori[] = ["Siswa", "Balita", "Ibu Hamil", "Ibu Menyusui"];
 const SATUANS = [
   "g",
   "kg",
@@ -103,6 +103,20 @@ interface ManualMacroFormRow extends ManualMacronutrient {
   rowId: string;
 }
 
+interface RawMaterialOption {
+  id: string;
+  name: string;
+  category: string;
+  unit: string;
+  standard_price: number;
+  quality_status?: string;
+  availability?: {
+    qty_available: number;
+    min_stock_level: number;
+    status: string;
+  } | null;
+}
+
 const MANUAL_MACRO_OPTIONS = [
   { nama: "Serat", satuan: "g", note: "Bantu pencernaan dan rasa kenyang lebih lama." },
   { nama: "Gula", satuan: "g", note: "Pantau gula sederhana agar menu tidak berlebih." },
@@ -136,10 +150,13 @@ const MANUAL_MACRO_OPTIONS = [
 ];
 
 const emptyIng: MenuIngredient = {
+  raw_material_id: null,
   nama_bahan: "",
   jumlah: 0,
   satuan: "g",
   harga_satuan: 0,
+  unit_snapshot: null,
+  qty_available: null,
 };
 
 const emptyNut: MenuNutrition = {
@@ -188,6 +205,25 @@ function normalizeNutrition(
   };
 }
 
+
+function convertIngredientCost(
+  jumlah: number,
+  inputUnit: string,
+  baseUnit: string | null | undefined,
+  hargaSatuan: number | undefined,
+) {
+  const qty = toNumber(jumlah);
+  const price = toNumber(hargaSatuan);
+  const from = String(inputUnit || "").toLowerCase();
+  const to = String(baseUnit || inputUnit || "").toLowerCase();
+  let normalizedQty = qty;
+  if (from === "g" && to === "kg") normalizedQty = qty / 1000;
+  if (from === "kg" && to === "g") normalizedQty = qty * 1000;
+  if (from === "ml" && to === "liter") normalizedQty = qty / 1000;
+  if (from === "liter" && to === "ml") normalizedQty = qty * 1000;
+  return Math.round(normalizedQty * price);
+}
+
 function formatLogTime(iso: string) {
   return new Date(iso).toLocaleString("id-ID", {
     day: "2-digit",
@@ -206,7 +242,11 @@ export default function RecipeBuilderPage({
   const [kategori, setKategori] = useState<MenuKategori>("Siswa");
   const [menuType, setMenuType] = useState<MenuType>("makanan");
   const [menuPorsi, setMenuPorsi] = useState<MenuPorsi>("porsi_kecil");
-  const [hargaJual, setHargaJual] = useState(0);
+  const [, setHargaJual] = useState(0);
+  const [caraMemasak, setCaraMemasak] = useState("kukus");
+  const [rawMaterials, setRawMaterials] = useState<RawMaterialOption[]>([]);
+  const [rawMaterialLoading, setRawMaterialLoading] = useState(false);
+  const [rawMaterialError, setRawMaterialError] = useState<string | null>(null);
   const [ingredients, setIngredients] = useState<MenuIngredient[]>([
     { ...emptyIng },
   ]);
@@ -240,6 +280,29 @@ export default function RecipeBuilderPage({
   const [aiError, setAiError] = useState<string | null>(null);
   const [stockLoading, setStockLoading] = useState(false);
 
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadRawMaterials() {
+      setRawMaterialLoading(true);
+      setRawMaterialError(null);
+      try {
+        const res = await fetch(`${API}/raw-materials?status=active&include=availability&kitchen_id=k-1`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || data.error || "Gagal memuat bahan baku");
+        if (!cancelled) setRawMaterials(Array.isArray(data.data) ? data.data : []);
+      } catch (err: unknown) {
+        if (!cancelled) setRawMaterialError(err instanceof Error ? err.message : "Gagal memuat bahan baku");
+      } finally {
+        if (!cancelled) setRawMaterialLoading(false);
+      }
+    }
+    loadRawMaterials();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     const editId = getEditTargetMenuId();
     if (!editId) return;
@@ -255,6 +318,7 @@ export default function RecipeBuilderPage({
           nama: string;
           kategori: MenuKategori;
           harga_jual?: number;
+          cara_memasak?: string | null;
           deskripsi?: string | null;
           gambar_url?: string | null;
           kalori?: number;
@@ -268,7 +332,12 @@ export default function RecipeBuilderPage({
           ? menu.ingredients.map((item) => ({
               ...item,
               jumlah: toNumber(item.jumlah),
+              raw_material_id: item.raw_material_id || null,
               harga_satuan: toNumber(item.harga_satuan),
+              unit_snapshot: item.unit_snapshot || item.satuan,
+              quality_status_snapshot: item.quality_status_snapshot || null,
+              availability_status_snapshot: item.availability_status_snapshot || null,
+              qty_available: item.qty_available ?? null,
             }))
           : [];
 
@@ -279,6 +348,7 @@ export default function RecipeBuilderPage({
         setNama(cleanName);
         setKategori(menu.kategori || "Siswa");
         setHargaJual(toNumber(menu.harga_jual));
+        setCaraMemasak(menu.cara_memasak || "kukus");
         setIngredients(normalizedIng);
         setNutrition(normalizedNut);
         setManualMacros(
@@ -441,6 +511,27 @@ export default function RecipeBuilderPage({
     setIngredients(updated);
   };
 
+  const selectRawMaterial = (i: number, rawMaterialId: string) => {
+    const selected = rawMaterials.find((item) => item.id === rawMaterialId);
+    const updated = [...ingredients];
+    if (!selected) {
+      updated[i] = { ...updated[i], raw_material_id: null };
+    } else {
+      updated[i] = {
+        ...updated[i],
+        raw_material_id: selected.id,
+        nama_bahan: selected.name,
+        satuan: selected.unit,
+        harga_satuan: selected.standard_price || 0,
+        unit_snapshot: selected.unit,
+        quality_status_snapshot: selected.quality_status || null,
+        availability_status_snapshot: selected.availability?.status || null,
+        qty_available: selected.availability?.qty_available ?? null,
+      };
+    }
+    setIngredients(updated);
+  };
+
   // Nutrition handler
   const updateNut = (field: keyof MenuNutrition, val: number) =>
     setNutrition({ ...nutrition, [field]: val });
@@ -577,7 +668,8 @@ export default function RecipeBuilderPage({
           nama: cleanedName,
           kategori,
           deskripsi: "",
-          harga_jual: hargaJual,
+          cara_memasak: caraMemasak,
+          harga_jual: hppEstimate,
           ingredients: validIngredients,
           nutrition,
           manual_macronutrients: validManualMacros,
@@ -619,7 +711,7 @@ export default function RecipeBuilderPage({
           kategori,
           menuType,
           menuPorsi,
-          hargaJual,
+          hppEstimate,
           validIngredients,
           nutrition,
         );
@@ -688,7 +780,7 @@ export default function RecipeBuilderPage({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ingredients: ings,
+          ingredients: ings.length > 0 ? ings : undefined,
           kelompok: aiKelompok,
           kategori,
         }),
@@ -709,11 +801,13 @@ export default function RecipeBuilderPage({
       if (data.bahan_digunakan?.length > 0) {
         setIngredients(
           data.bahan_digunakan.map(
-            (b: { nama: string; jumlah: number; satuan: string }) => ({
+            (b: { nama: string; raw_material_id?: string | null; jumlah: number; satuan: string; harga_satuan?: number }) => ({
               nama_bahan: b.nama,
               jumlah: b.jumlah,
               satuan: b.satuan,
-              harga_satuan: 0,
+              raw_material_id: b.raw_material_id || null,
+              harga_satuan: b.harga_satuan || 0,
+              unit_snapshot: b.satuan,
             }),
           ),
         );
@@ -750,18 +844,25 @@ export default function RecipeBuilderPage({
   };
 
   // HPP estimate
-  const hppEstimate = ingredients.reduce((sum, ing) => {
-    const jumlah = Number(ing.jumlah) || 0;
-    const harga = Number(ing.harga_satuan) || 0;
-    const sat = ing.satuan;
-    const mult =
-      sat === "kg" || sat === "liter"
-        ? jumlah
-        : sat === "g" || sat === "ml"
-          ? jumlah / 1000
-          : jumlah;
-    return sum + Math.round(harga * mult);
-  }, 0);
+  const hppEstimate = useMemo(
+    () =>
+      ingredients.reduce(
+        (sum, ing) =>
+          sum +
+          convertIngredientCost(
+            ing.jumlah,
+            ing.satuan,
+            ing.unit_snapshot || ing.satuan,
+            ing.harga_satuan,
+          ),
+        0,
+      ),
+    [ingredients],
+  );
+
+  useEffect(() => {
+    setHargaJual(hppEstimate);
+  }, [hppEstimate]);
 
   if (loadingEdit) {
     return (
@@ -866,11 +967,11 @@ export default function RecipeBuilderPage({
                 </label>
                 <input
                   type="number"
-                  value={hargaJual || ""}
-                  onChange={(e) => setHargaJual(Number(e.target.value))}
+                  value={hppEstimate || ""}
+                  readOnly
                   min={0}
                   placeholder="0"
-                  className="w-full px-4 py-3 text-sm"
+                  className="w-full bg-gray-50 px-4 py-3 text-sm"
                 />
               </div>
             </div>
@@ -994,22 +1095,47 @@ export default function RecipeBuilderPage({
                 </button>
               </div>
 
+              {rawMaterialLoading && (
+                <p className="mb-2 text-xs text-gray-400">Memuat bahan baku...</p>
+              )}
+              {rawMaterialError && (
+                <p className="mb-2 text-xs text-amber-600">{rawMaterialError}</p>
+              )}
               <div className="space-y-2">
                 {ingredients.map((ing, idx) => (
                   <div
                     key={idx}
                     className="grid items-center gap-2"
-                    style={{ gridTemplateColumns: "1fr 80px 90px 90px 32px" }}
+                    style={{ gridTemplateColumns: "1.4fr 80px 90px 90px 32px" }}
                   >
-                    <input
-                      type="text"
-                      value={ing.nama_bahan}
-                      onChange={(e) =>
-                        updateIng(idx, "nama_bahan", e.target.value)
-                      }
-                      placeholder="Nama bahan"
-                      className="rounded-[16px] px-3 py-2.5 text-sm"
-                    />
+                    <div className="space-y-1">
+                      <select
+                        value={ing.raw_material_id || ""}
+                        onChange={(e) => selectRawMaterial(idx, e.target.value)}
+                        className="w-full rounded-[16px] px-3 py-2.5 text-sm"
+                      >
+                        <option value="">Pilih bahan baku</option>
+                        {rawMaterials.map((material) => (
+                          <option key={material.id} value={material.id}>
+                            {material.name} - {material.unit} - Rp {Number(material.standard_price || 0).toLocaleString("id-ID")}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        value={ing.nama_bahan}
+                        onChange={(e) =>
+                          updateIng(idx, "nama_bahan", e.target.value)
+                        }
+                        placeholder="Nama bahan manual"
+                        className="w-full rounded-[16px] px-3 py-2 text-xs"
+                      />
+                      {ing.qty_available !== null && ing.qty_available !== undefined && (
+                        <p className="px-1 text-[10px] text-gray-400">
+                          Stok info: {Number(ing.qty_available).toLocaleString("id-ID")} {ing.unit_snapshot || ing.satuan}
+                        </p>
+                      )}
+                    </div>
                     <input
                       type="number"
                       value={ing.jumlah || ""}
@@ -1391,7 +1517,7 @@ export default function RecipeBuilderPage({
             <button
               type="button"
               onClick={handleAIGenerate}
-              disabled={aiLoading || !aiIngText.trim()}
+              disabled={aiLoading}
               className="btn-primary flex w-full items-center justify-center gap-2 py-3 text-sm disabled:opacity-60"
             >
               {aiLoading ? (

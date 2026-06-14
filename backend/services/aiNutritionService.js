@@ -1053,12 +1053,15 @@ TARGET ${kelompok}:
 - Karbohidrat: ${target.karbo} g
 
 Kategori: ${kategori}
+Metode masak harus dipilih dari goreng, kukus, rebus, bakar, atau tumis.
+Perhitungkan metode masak: goreng biasanya menaikkan kalori/lemak; kukus/rebus lebih rendah lemak; bakar/tumis sedang.
 
 Balas JSON valid:
 {
   "nama_menu": "nama menu",
   "deskripsi": "deskripsi singkat",
-  "metode_masak": "rebus/goreng/kukus/panggang",
+  "metode_masak": "goreng/kukus/rebus/bakar/tumis",
+  "catatan_metode_masak": "jelaskan singkat dampak metode masak terhadap kalori",
   "estimasi_gizi": {
     "kalori": number,
     "protein": number,
@@ -1103,18 +1106,19 @@ Balas JSON valid:
     balita: { kalori: 470, protein: 19, lemak: 15, karbo: 62 },
     siswa: { kalori: 610, protein: 26, lemak: 18, karbo: 82 },
     ibu_hamil: { kalori: 760, protein: 32, lemak: 24, karbo: 95 },
+    ibu_menyusui: { kalori: 840, protein: 36, lemak: 26, karbo: 102 },
     porsi_kecil: { kalori: 430, protein: 18, lemak: 14, karbo: 60 },
     porsi_besar: { kalori: 810, protein: 34, lemak: 24, karbo: 98 },
   };
 
   const fallbackTarget =
-    fallbackByKelompok[kelompok] || fallbackByKelompok.siswa;
+    fallbackByKelompok[kategoriKey] || fallbackByKelompok[kelompok] || fallbackByKelompok.siswa;
 
   return {
     nama_menu: `Menu MBG ${kategori} Berbasis Stok`,
     deskripsi:
       "Menu rekomendasi sementara dari dummy stock. Aktifkan GEMINI_API_KEY untuk hasil generatif penuh.",
-    metode_masak: "rebus-kukus",
+    metode_masak: "kukus",
     estimasi_gizi: {
       kalori: fallbackTarget.kalori,
       protein: fallbackTarget.protein,

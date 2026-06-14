@@ -27,7 +27,6 @@ import {
   Trash2,
   Users,
   UtensilsCrossed,
-  UserRound,
   X,
 } from "lucide-react";
 import {
@@ -799,6 +798,12 @@ function evaluateMenuAkgStatus(menu: Menu) {
     Siswa: STANDAR.siswa,
     Balita: STANDAR.balita,
     "Ibu Hamil": STANDAR.ibu_hamil,
+    "Ibu Menyusui": {
+      kalori: 850,
+      protein: 36,
+      karbo: 105,
+      lemak: 28,
+    },
   };
 
   const target = targetMap[menu.kategori] || STANDAR.siswa;

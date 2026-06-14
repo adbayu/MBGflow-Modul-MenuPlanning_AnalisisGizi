@@ -3,6 +3,8 @@ const router = express.Router();
 const db = require("../db");
 const aiService = require("../services/aiNutritionService");
 const upload = require("../middleware/upload");
+const rawMaterialClient = require("../services/rawMaterialApiClient");
+const { getRawMaterialId, mapIngredientForInsert } = require("../services/ingredientMapper");
 
 function normalizeDayPlan(raw) {
   if (!raw || typeof raw !== "object") {
@@ -22,6 +24,96 @@ function normalizeDayPlan(raw) {
 
 function isDateKey(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+
+
+const ALLOWED_KATEGORI = ["Siswa", "Balita", "Ibu Hamil", "Ibu Menyusui"];
+
+function convertIngredientCost(jumlah, inputUnit, baseUnit, hargaSatuan) {
+  const qty = Number(jumlah) || 0;
+  const price = Number(hargaSatuan) || 0;
+  const from = String(inputUnit || "").toLowerCase();
+  const to = String(baseUnit || inputUnit || "").toLowerCase();
+  let normalizedQty = qty;
+  if (from === "g" && to === "kg") normalizedQty = qty / 1000;
+  if (from === "kg" && to === "g") normalizedQty = qty * 1000;
+  if (from === "ml" && to === "liter") normalizedQty = qty / 1000;
+  if (from === "liter" && to === "ml") normalizedQty = qty * 1000;
+  return Math.round(normalizedQty * price);
+}
+
+function calculateMenuHpp(ingredients) {
+  return (ingredients || []).reduce((sum, ingredient) => {
+    return sum + convertIngredientCost(
+      ingredient.jumlah,
+      ingredient.satuan,
+      ingredient.unit_snapshot || ingredient.satuan,
+      ingredient.harga_satuan,
+    );
+  }, 0);
+}
+
+async function prepareIngredientsForSave(menuId, ingredients, options = {}) {
+  const warnings = [];
+  const prepared = [];
+  const kitchenId = options.kitchen_id || options.kitchenId || null;
+
+  if (!Array.isArray(ingredients) || ingredients.length === 0) {
+    return { values: [], warnings };
+  }
+
+  for (const ingredient of ingredients) {
+    const rawMaterialId = getRawMaterialId(ingredient);
+    let rawMaterial = null;
+    let availability = null;
+
+    if (rawMaterialId) {
+      try {
+        rawMaterial = await rawMaterialClient.getRawMaterialById(rawMaterialId);
+        if (rawMaterial.status && rawMaterial.status !== "active") {
+          const error = new Error(`Bahan baku ${rawMaterialId} tidak aktif`);
+          error.statusCode = 400;
+          error.code = "RAW_MATERIAL_INACTIVE";
+          throw error;
+        }
+
+        if (kitchenId) {
+          try {
+            availability = await rawMaterialClient.checkAvailability(rawMaterialId, {
+              kitchen_id: kitchenId,
+              quantity: ingredient.jumlah,
+              unit: ingredient.satuan || rawMaterial.unit,
+            });
+          } catch (availabilityError) {
+            if (["STOCK_NOT_FOUND", "RAW_MATERIAL_SERVICE_UNAVAILABLE"].includes(availabilityError.code)) {
+              warnings.push({
+                code: availabilityError.code,
+                raw_material_id: rawMaterialId,
+                message: availabilityError.message,
+              });
+            } else {
+              throw availabilityError;
+            }
+          }
+        }
+      } catch (error) {
+        if (error.code === "RAW_MATERIAL_NOT_FOUND" || error.code === "INVALID_RAW_MATERIAL_DTO" || error.code === "RAW_MATERIAL_INACTIVE") {
+          error.statusCode = error.statusCode || 400;
+          throw error;
+        }
+        warnings.push({
+          code: error.code || "RAW_MATERIAL_SERVICE_UNAVAILABLE",
+          raw_material_id: rawMaterialId,
+          message: error.message,
+        });
+      }
+    }
+
+    prepared.push(mapIngredientForInsert(menuId, ingredient, rawMaterial, availability));
+  }
+
+  return { values: prepared, warnings };
 }
 
 // ============================================================
@@ -383,6 +475,24 @@ router.put("/weekly-plans", async (req, res) => {
   }
 });
 
+
+// GET /api/menu/raw-materials - Proxy bahan baku untuk Recipe Builder
+router.get("/raw-materials", async (req, res) => {
+  try {
+    const baseUrl = (process.env.RAW_MATERIAL_SERVICE_BASE_URL || "http://localhost:5000").replace(/\/$/, "");
+    const token = process.env.RAW_MATERIAL_SERVICE_TOKEN || "";
+    const query = new URLSearchParams(req.query).toString();
+    const headers = { Accept: "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const response = await fetch(`${baseUrl}/api/v1/raw-materials${query ? `?${query}` : ""}`, { headers });
+    const body = await response.json();
+    if (!response.ok) return res.status(response.status).json(body);
+    res.json(body);
+  } catch (error) {
+    res.status(503).json({ error: "RAW_MATERIAL_SERVICE_UNAVAILABLE", message: error.message });
+  }
+});
+
 // GET /api/menu/:id - Get single menu with ingredients and nutrition
 router.get("/:id", async (req, res) => {
   try {
@@ -425,6 +535,8 @@ router.post("/", async (req, res) => {
     nama,
     kategori,
     deskripsi,
+    cara_memasak,
+    harga_jual,
     ingredients,
     nutrition,
     manual_macronutrients,
@@ -434,11 +546,11 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ error: "Nama dan kategori wajib diisi" });
   }
   // Validasi kategori hanya boleh Siswa, Balita, atau Ibu Hamil
-  const allowedKategori = ["Siswa", "Balita", "Ibu Hamil"];
+  const allowedKategori = ALLOWED_KATEGORI;
   if (!allowedKategori.includes(kategori)) {
     return res
       .status(400)
-      .json({ error: "Kategori hanya boleh Siswa, Balita, atau Ibu Hamil" });
+      .json({ error: "Kategori hanya boleh Siswa, Balita, Ibu Hamil, atau Ibu Menyusui" });
   }
 
   const connection = await db.getConnection();
@@ -447,25 +559,31 @@ router.post("/", async (req, res) => {
 
     // 1. Insert Menu
     const [menuResult] = await connection.query(
-      "INSERT INTO menus (nama, kategori, deskripsi) VALUES (?, ?, ?)",
-      [nama, kategori, deskripsi || null],
+      "INSERT INTO menus (nama, kategori, deskripsi, cara_memasak, harga_jual) VALUES (?, ?, ?, ?, ?)",
+      [nama, kategori, deskripsi || null, cara_memasak || null, Number(harga_jual) || 0],
     );
     const menuId = menuResult.insertId;
 
     // 2. Insert Ingredients
+    const integrationWarnings = [];
     if (ingredients && ingredients.length > 0) {
-      const ingredientValues = ingredients.map((ing) => [
-        menuId,
-        ing.bahan_baku_ref_id || null,
-        ing.nama_bahan,
-        ing.jumlah,
-        ing.satuan,
-        ing.harga_satuan || 0,
-      ]);
+      const preparedIngredients = await prepareIngredientsForSave(menuId, ingredients, req.body);
+      integrationWarnings.push(...preparedIngredients.warnings);
       await connection.query(
-        "INSERT INTO menu_ingredients (menu_id, bahan_baku_ref_id, nama_bahan, jumlah, satuan, harga_satuan) VALUES ?",
-        [ingredientValues],
+        `INSERT INTO menu_ingredients
+          (menu_id, bahan_baku_ref_id, raw_material_id, nama_bahan, jumlah, satuan, harga_satuan,
+           unit_snapshot, quality_status_snapshot, availability_status_snapshot,
+           price_updated_at_snapshot, stock_checked_at)
+         VALUES ?`,
+        [preparedIngredients.values],
       );
+      const nextHpp = calculateMenuHpp(preparedIngredients.values.map((value) => ({
+        jumlah: value[4],
+        satuan: value[5],
+        harga_satuan: value[6],
+        unit_snapshot: value[7],
+      })));
+      await connection.query("UPDATE menus SET harga_jual = ? WHERE id = ?", [nextHpp, menuId]);
     }
 
     // 3. Insert Nutrition
@@ -534,6 +652,7 @@ router.post("/", async (req, res) => {
         nutrition: newNutrition[0] || null,
         manual_macronutrients: newManualMacros,
       },
+      integration_warnings: integrationWarnings,
     });
   } catch (error) {
     if (connection) await connection.rollback();
@@ -550,6 +669,8 @@ router.put("/:id", async (req, res) => {
     nama,
     kategori,
     deskripsi,
+    cara_memasak,
+    harga_jual,
     ingredients,
     nutrition,
     manual_macronutrients,
@@ -561,35 +682,41 @@ router.put("/:id", async (req, res) => {
 
     // 1. Update menu base info
     // Validasi kategori hanya boleh Siswa, Balita, atau Ibu Hamil
-    const allowedKategori = ["Siswa", "Balita", "Ibu Hamil"];
+    const allowedKategori = ALLOWED_KATEGORI;
     if (!allowedKategori.includes(kategori)) {
       return res
         .status(400)
-        .json({ error: "Kategori hanya boleh Siswa, Balita, atau Ibu Hamil" });
+        .json({ error: "Kategori hanya boleh Siswa, Balita, Ibu Hamil, atau Ibu Menyusui" });
     }
     await connection.query(
-      "UPDATE menus SET nama = ?, kategori = ?, deskripsi = ? WHERE id = ?",
-      [nama, kategori, deskripsi || null, menuId],
+      "UPDATE menus SET nama = ?, kategori = ?, deskripsi = ?, cara_memasak = ?, harga_jual = ? WHERE id = ?",
+      [nama, kategori, deskripsi || null, cara_memasak || null, Number(harga_jual) || 0, menuId],
     );
 
     // 2. Replace ingredients (delete and re-insert)
+    const integrationWarnings = [];
     if (ingredients) {
       await connection.query("DELETE FROM menu_ingredients WHERE menu_id = ?", [
         menuId,
       ]);
       if (ingredients.length > 0) {
-        const ingredientValues = ingredients.map((ing) => [
-          menuId,
-          ing.bahan_baku_ref_id || null,
-          ing.nama_bahan,
-          ing.jumlah,
-          ing.satuan,
-          ing.harga_satuan || 0,
-        ]);
+        const preparedIngredients = await prepareIngredientsForSave(menuId, ingredients, req.body);
+        integrationWarnings.push(...preparedIngredients.warnings);
         await connection.query(
-          "INSERT INTO menu_ingredients (menu_id, bahan_baku_ref_id, nama_bahan, jumlah, satuan, harga_satuan) VALUES ?",
-          [ingredientValues],
+          `INSERT INTO menu_ingredients
+            (menu_id, bahan_baku_ref_id, raw_material_id, nama_bahan, jumlah, satuan, harga_satuan,
+             unit_snapshot, quality_status_snapshot, availability_status_snapshot,
+             price_updated_at_snapshot, stock_checked_at)
+           VALUES ?`,
+          [preparedIngredients.values],
         );
+        const nextHpp = calculateMenuHpp(preparedIngredients.values.map((value) => ({
+          jumlah: value[4],
+          satuan: value[5],
+          harga_satuan: value[6],
+          unit_snapshot: value[7],
+        })));
+        await connection.query("UPDATE menus SET harga_jual = ? WHERE id = ?", [nextHpp, menuId]);
       }
     }
 
@@ -673,6 +800,7 @@ router.put("/:id", async (req, res) => {
         nutrition: updatedNutrition[0] || null,
         manual_macronutrients: updatedManualMacros,
       },
+      integration_warnings: integrationWarnings,
     });
   } catch (error) {
     if (connection) await connection.rollback();
@@ -789,7 +917,7 @@ router.get("/integration/list", async (req, res) => {
 router.get("/:id/ingredients", async (req, res) => {
   try {
     const [rows] = await db.query(
-      "SELECT id, menu_id, bahan_baku_ref_id, nama_bahan, jumlah, satuan FROM menu_ingredients WHERE menu_id = ?",
+      "SELECT id, menu_id, bahan_baku_ref_id, raw_material_id, nama_bahan, jumlah, satuan, harga_satuan, unit_snapshot, quality_status_snapshot, availability_status_snapshot, stock_checked_at FROM menu_ingredients WHERE menu_id = ?",
       [req.params.id],
     );
     res.json(rows);
@@ -840,17 +968,31 @@ router.post("/ai-generate", async (req, res) => {
       kelompok = "porsi_kecil",
       kategori = "Siswa",
     } = req.body;
-    if (
-      !ingredients ||
-      !Array.isArray(ingredients) ||
-      ingredients.length === 0
-    ) {
-      return res
-        .status(400)
-        .json({ error: "ingredients harus berupa array bahan baku" });
+    let sourceIngredients = ingredients;
+    if (!Array.isArray(sourceIngredients) || sourceIngredients.length === 0) {
+      const baseUrl = (process.env.RAW_MATERIAL_SERVICE_BASE_URL || "http://localhost:5000").replace(/\/$/, "");
+      const token = process.env.RAW_MATERIAL_SERVICE_TOKEN || "";
+      const headers = { Accept: "application/json" };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const response = await fetch(`${baseUrl}/api/v1/raw-materials?status=active&include=availability&kitchen_id=${encodeURIComponent(req.body.kitchen_id || "k-1")}`, { headers });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.message || body.error || "Gagal mengambil bahan baku");
+      sourceIngredients = (body.data || []).map((material) => ({
+        raw_material_id: material.id,
+        nama: material.name,
+        nama_bahan: material.name,
+        jumlah: 100,
+        satuan: material.unit,
+        harga_satuan: material.standard_price || 0,
+        category: material.category,
+        qty_available: material.availability?.qty_available ?? null,
+      }));
+    }
+    if (!sourceIngredients || !Array.isArray(sourceIngredients) || sourceIngredients.length === 0) {
+      return res.status(400).json({ error: "Bahan baku tersedia tidak ditemukan" });
     }
     const result = await aiService.generateMenuFromIngredients(
-      ingredients,
+      sourceIngredients,
       kelompok,
       kategori,
     );
@@ -878,12 +1020,12 @@ router.get("/:id/hpp", async (req, res) => {
     const breakdown = ingredients.map((ing) => {
       const jumlah = Number(ing.jumlah) || 0;
       const hargaSatuan = Number(ing.harga_satuan) || 0;
-      const satuan = ing.satuan || "g";
-      let multiplier = 1;
-      if (satuan === "kg" || satuan === "liter") multiplier = jumlah;
-      else if (satuan === "g" || satuan === "ml") multiplier = jumlah / 1000;
-      else multiplier = jumlah;
-      const subtotal = Math.round(hargaSatuan * multiplier);
+      const subtotal = convertIngredientCost(
+        jumlah,
+        ing.satuan,
+        ing.unit_snapshot || ing.satuan,
+        hargaSatuan,
+      );
       hpp += subtotal;
       return { ...ing, subtotal };
     });
