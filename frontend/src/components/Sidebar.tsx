@@ -4,12 +4,12 @@ import {
   CalendarDays,
   ChefHat,
   LayoutDashboard,
-  Leaf,
   LogOut,
   User,
   UtensilsCrossed,
 } from "lucide-react";
 import type { PageView, AuthUser } from "../types";
+import mbgFlowLogo from "../assets/svg/MBGflowlogo.svg";
 
 interface SidebarProps {
   activePage: PageView;
@@ -44,9 +44,11 @@ export default function Sidebar({
     >
       <div className="border-b border-ink-100 px-2 pb-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-gradient-to-br from-forest-900 via-forest-800 to-forest-600 shadow-[0_18px_28px_rgba(23,59,35,0.18)]">
-            <Leaf className="h-5 w-5 text-white" />
-          </div>
+          <img
+            src={mbgFlowLogo}
+            alt="MBGflow"
+            className="h-30 w-30 object-cover"
+          />
           <div className="min-w-0">
             <p className="truncate text-base font-bold text-ink-700">MBGflow</p>
             <p className="text-[11px] uppercase tracking-[0.18em] text-ink-400">

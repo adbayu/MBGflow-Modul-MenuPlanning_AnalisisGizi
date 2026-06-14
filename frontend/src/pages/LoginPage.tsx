@@ -1,6 +1,7 @@
 ﻿import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Eye, EyeOff, Leaf, Lock, User } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Lock, User } from "lucide-react";
+import mbgFlowLogo from "../assets/svg/MBGflowlogo.svg";
 
 const API = "http://localhost:3002/api/auth";
 
@@ -48,8 +49,12 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(165,214,167,0.24),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.12),transparent_30%)]" />
 
           <div className="relative z-10 flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-white/12 ring-1 ring-white/10">
-              <Leaf className="h-5 w-5" />
+            <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-[18px] bg-white ring-1 ring-white/20">
+              <img
+                src={mbgFlowLogo}
+                alt="MBGflow"
+                className="h-full w-full object-cover"
+              />
             </div>
             <div>
               <p className="text-base font-bold">MBGflow</p>
