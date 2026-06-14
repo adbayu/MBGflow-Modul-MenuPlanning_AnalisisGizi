@@ -48,7 +48,6 @@ const PILLAR_COLORS: Record<string, string> = {
   lemak: "#f59e0b",
   karbohidrat: "#60a5fa",
   serat: "#14b8a6",
-  gula: "#ef4444",
 };
 
 type TargetMBG = "siswa" | "balita" | "ibu_hamil";
@@ -76,7 +75,6 @@ const AKG_MINIMUM: Record<TargetMBG, Record<string, number>> = {
     lemak: 12,
     karbohidrat: 55,
     serat: 3,
-    gula: 0,
   },
   siswa: {
     kalori: 550,
@@ -84,7 +82,6 @@ const AKG_MINIMUM: Record<TargetMBG, Record<string, number>> = {
     lemak: 15,
     karbohidrat: 70,
     serat: 5,
-    gula: 0,
   },
   ibu_hamil: {
     kalori: 700,
@@ -92,7 +89,6 @@ const AKG_MINIMUM: Record<TargetMBG, Record<string, number>> = {
     lemak: 20,
     karbohidrat: 80,
     serat: 6,
-    gula: 0,
   },
 };
 
@@ -103,7 +99,6 @@ const AKG_MAXIMUM: Record<TargetMBG, Record<string, number>> = {
     lemak: 18,
     karbohidrat: 70,
     serat: 8,
-    gula: 12,
   },
   siswa: {
     kalori: 650,
@@ -111,7 +106,6 @@ const AKG_MAXIMUM: Record<TargetMBG, Record<string, number>> = {
     lemak: 22,
     karbohidrat: 90,
     serat: 10,
-    gula: 15,
   },
   ibu_hamil: {
     kalori: 800,
@@ -119,7 +113,6 @@ const AKG_MAXIMUM: Record<TargetMBG, Record<string, number>> = {
     lemak: 28,
     karbohidrat: 100,
     serat: 12,
-    gula: 15,
   },
 };
 
@@ -222,7 +215,6 @@ export default function AILabPage() {
             lemak: updatedNutrition.lemak || 0,
             karbohidrat: updatedNutrition.karbohidrat || 0,
             serat: updatedNutrition.serat || 0,
-            gula: updatedNutrition.gula || 0,
           },
         }),
       });

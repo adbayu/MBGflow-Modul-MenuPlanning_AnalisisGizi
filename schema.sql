@@ -47,7 +47,6 @@ CREATE TABLE IF NOT EXISTS menu_nutrition (
   lemak DECIMAL(10,2) DEFAULT 0,
   karbohidrat DECIMAL(10,2) DEFAULT 0,
   serat DECIMAL(10,2) DEFAULT 0,
-  gula DECIMAL(10,2) DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (menu_id) REFERENCES menus(id) ON DELETE CASCADE
@@ -170,7 +169,7 @@ INSERT IGNORE INTO menu_ingredients (menu_id, nama_bahan, jumlah, satuan) VALUES
 (5, 'Tepung Terigu', 0.05, 'kg'),
 (5, 'Keju Parut', 0.03, 'kg');
 
-INSERT IGNORE INTO menu_nutrition (menu_id, kalori, protein, lemak, karbohidrat, serat, gula) VALUES
+INSERT IGNORE INTO menu_nutrition (menu_id, kalori, protein, lemak, karbohidrat, serat) VALUES
 (1, 450.00, 22.50, 15.00, 55.00, 2.50, 3.00),
 (2, 85.00, 3.00, 1.50, 15.00, 4.50, 5.00),
 (3, 320.00, 18.00, 8.00, 45.00, 1.00, 2.00),

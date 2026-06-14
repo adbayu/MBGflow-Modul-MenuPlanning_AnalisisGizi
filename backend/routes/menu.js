@@ -30,6 +30,41 @@ function isDateKey(value) {
 
 const ALLOWED_KATEGORI = ["Siswa", "Balita", "Ibu Hamil", "Ibu Menyusui"];
 
+
+let menuSchemaReady = false;
+async function ensureMenuSchema() {
+  if (menuSchemaReady) return;
+  const [menuRows] = await db.query(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'menus' AND COLUMN_NAME = 'cara_memasak'`,
+  );
+  if (menuRows.length === 0) {
+    await db.query("ALTER TABLE menus ADD COLUMN cara_memasak VARCHAR(80) DEFAULT NULL");
+  }
+
+  const [ingredientRows] = await db.query(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'menu_ingredients'`,
+  );
+  const ingredientColumns = new Set(ingredientRows.map((row) => row.COLUMN_NAME));
+  const ingredientMigrations = [
+    ["bahan_baku_ref_id", "ALTER TABLE menu_ingredients ADD COLUMN bahan_baku_ref_id INT DEFAULT NULL AFTER menu_id"],
+    ["raw_material_id", "ALTER TABLE menu_ingredients ADD COLUMN raw_material_id VARCHAR(255) DEFAULT NULL AFTER bahan_baku_ref_id"],
+    ["harga_satuan", "ALTER TABLE menu_ingredients ADD COLUMN harga_satuan DECIMAL(12,2) DEFAULT 0 AFTER satuan"],
+    ["unit_snapshot", "ALTER TABLE menu_ingredients ADD COLUMN unit_snapshot VARCHAR(50) DEFAULT NULL AFTER harga_satuan"],
+    ["quality_status_snapshot", "ALTER TABLE menu_ingredients ADD COLUMN quality_status_snapshot VARCHAR(100) DEFAULT NULL AFTER unit_snapshot"],
+    ["availability_status_snapshot", "ALTER TABLE menu_ingredients ADD COLUMN availability_status_snapshot VARCHAR(50) DEFAULT NULL AFTER quality_status_snapshot"],
+    ["price_updated_at_snapshot", "ALTER TABLE menu_ingredients ADD COLUMN price_updated_at_snapshot DATETIME DEFAULT NULL AFTER availability_status_snapshot"],
+    ["stock_checked_at", "ALTER TABLE menu_ingredients ADD COLUMN stock_checked_at DATETIME DEFAULT NULL AFTER price_updated_at_snapshot"],
+  ];
+  for (const [column, statement] of ingredientMigrations) {
+    if (!ingredientColumns.has(column)) {
+      await db.query(statement);
+    }
+  }
+  menuSchemaReady = true;
+}
+
 function convertIngredientCost(jumlah, inputUnit, baseUnit, hargaSatuan) {
   const qty = Number(jumlah) || 0;
   const price = Number(hargaSatuan) || 0;
@@ -125,7 +160,7 @@ router.get("/", async (req, res) => {
   try {
     const [rows] = await db.query(`
             SELECT m.*,
-            n.kalori, n.protein, n.lemak, n.karbohidrat, n.serat, n.gula
+            n.kalori, n.protein, n.lemak, n.karbohidrat, n.serat
             FROM menus m
             LEFT JOIN menu_nutrition n ON m.id = n.menu_id
             ORDER BY m.created_at DESC
@@ -134,25 +169,6 @@ router.get("/", async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-});
-
-// GET /api/menu/dummy-stock - Dummy stok bahan untuk simulasi AI recommendation
-router.get("/dummy-stock", async (_req, res) => {
-  res.json({
-    source: "dummy",
-    updated_at: new Date().toISOString(),
-    items: [
-      { nama: "Beras", qty: 5000, satuan: "g" },
-      { nama: "Ayam", qty: 2000, satuan: "g" },
-      { nama: "Tempe", qty: 1500, satuan: "g" },
-      { nama: "Tahu", qty: 1200, satuan: "g" },
-      { nama: "Bayam", qty: 800, satuan: "g" },
-      { nama: "Wortel", qty: 1000, satuan: "g" },
-      { nama: "Telur", qty: 30, satuan: "butir" },
-      { nama: "Susu UHT", qty: 3000, satuan: "ml" },
-      { nama: "Pisang", qty: 25, satuan: "buah" },
-    ],
-  });
 });
 
 // POST /api/menu/analyze-plate - Analyze combined Piringku selection with AI
@@ -171,7 +187,7 @@ router.post("/analyze-plate", async (req, res) => {
       `
         SELECT m.id, m.nama, m.kategori, m.deskripsi,
                n.id AS nutrition_id,
-               n.kalori, n.protein, n.lemak, n.karbohidrat, n.serat, n.gula
+               n.kalori, n.protein, n.lemak, n.karbohidrat, n.serat
         FROM menus m
         LEFT JOIN menu_nutrition n ON m.id = n.menu_id
         WHERE m.id IN (${placeholders})
@@ -199,10 +215,9 @@ router.post("/analyze-plate", async (req, res) => {
         acc.lemak += Number(item.lemak || 0);
         acc.karbohidrat += Number(item.karbohidrat || 0);
         acc.serat += Number(item.serat || 0);
-        acc.gula += Number(item.gula || 0);
         return acc;
       },
-      { kalori: 0, protein: 0, lemak: 0, karbohidrat: 0, serat: 0, gula: 0 },
+      { kalori: 0, protein: 0, lemak: 0, karbohidrat: 0, serat: 0 },
     );
 
     const target = String(req.body?.target || "Target MBG");
@@ -553,6 +568,7 @@ router.post("/", async (req, res) => {
       .json({ error: "Kategori hanya boleh Siswa, Balita, Ibu Hamil, atau Ibu Menyusui" });
   }
 
+  await ensureMenuSchema();
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
@@ -589,8 +605,8 @@ router.post("/", async (req, res) => {
     // 3. Insert Nutrition
     if (nutrition) {
       await connection.query(
-        `INSERT INTO menu_nutrition (menu_id, kalori, protein, lemak, karbohidrat, serat, gula)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO menu_nutrition (menu_id, kalori, protein, lemak, karbohidrat, serat)
+                 VALUES (?, ?, ?, ?, ?, ?)`,
         [
           menuId,
           nutrition.kalori || 0,
@@ -598,7 +614,6 @@ router.post("/", async (req, res) => {
           nutrition.lemak || 0,
           nutrition.karbohidrat || 0,
           nutrition.serat || 0,
-          nutrition.gula || 0,
         ],
       );
     }
@@ -676,6 +691,7 @@ router.put("/:id", async (req, res) => {
     manual_macronutrients,
   } = req.body;
 
+  await ensureMenuSchema();
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
@@ -723,15 +739,14 @@ router.put("/:id", async (req, res) => {
     // 3. Upsert nutrition
     if (nutrition) {
       await connection.query(
-        `INSERT INTO menu_nutrition (menu_id, kalori, protein, lemak, karbohidrat, serat, gula)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO menu_nutrition (menu_id, kalori, protein, lemak, karbohidrat, serat)
+                 VALUES (?, ?, ?, ?, ?, ?)
                  ON DUPLICATE KEY UPDATE
                     kalori = VALUES(kalori),
                     protein = VALUES(protein),
                     lemak = VALUES(lemak),
                     karbohidrat = VALUES(karbohidrat),
-                    serat = VALUES(serat),
-                    gula = VALUES(gula)`,
+                    serat = VALUES(serat)`,
         [
           menuId,
           nutrition.kalori || 0,
@@ -739,7 +754,6 @@ router.put("/:id", async (req, res) => {
           nutrition.lemak || 0,
           nutrition.karbohidrat || 0,
           nutrition.serat || 0,
-          nutrition.gula || 0,
         ],
       );
     }
@@ -965,8 +979,9 @@ router.post("/ai-generate", async (req, res) => {
   try {
     const {
       ingredients,
-      kelompok = "porsi_kecil",
+      kelompok = "Siswa",
       kategori = "Siswa",
+      cara_masak = "kukus",
     } = req.body;
     let sourceIngredients = ingredients;
     if (!Array.isArray(sourceIngredients) || sourceIngredients.length === 0) {
@@ -981,7 +996,7 @@ router.post("/ai-generate", async (req, res) => {
         raw_material_id: material.id,
         nama: material.name,
         nama_bahan: material.name,
-        jumlah: 100,
+        jumlah: material.availability?.qty_available ?? 1,
         satuan: material.unit,
         harga_satuan: material.standard_price || 0,
         category: material.category,
@@ -995,6 +1010,7 @@ router.post("/ai-generate", async (req, res) => {
       sourceIngredients,
       kelompok,
       kategori,
+      cara_masak,
     );
     res.json(result);
   } catch (error) {

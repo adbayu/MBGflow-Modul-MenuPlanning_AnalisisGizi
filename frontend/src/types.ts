@@ -27,7 +27,6 @@ export interface MenuNutrition {
   lemak: number;
   karbohidrat: number;
   serat: number;
-  gula: number;
   vitamins?: number; // % of daily value
 }
 
@@ -59,7 +58,6 @@ export interface Menu {
   lemak?: number;
   karbohidrat?: number;
   serat?: number;
-  gula?: number;
   // Calculated
   hpp?: number;
   profit_pct?: number;
@@ -178,7 +176,6 @@ export interface GeneratedMenu {
     lemak: number;
     karbohidrat: number;
     serat: number;
-    gula: number;
   };
   bahan_digunakan: Array<{
     nama: string;

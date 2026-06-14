@@ -270,7 +270,7 @@ function inferStatus(percent, limitOnly = false) {
 function buildNutrition(nutrition = {}, manualNutrients = []) {
   const result = {};
 
-  ["kalori", "protein", "lemak", "karbohidrat", "serat", "gula"].forEach((key) => {
+  ["kalori", "protein", "lemak", "karbohidrat", "serat"].forEach((key) => {
     const value = Number(nutrition[key] || 0);
     if (Number.isFinite(value) && value > 0) {
       result[key] = {
@@ -1006,9 +1006,52 @@ function getNutritionSummary(nutrition) {
     lemak: Number(nutrition.lemak || 0),
     karbohidrat: Number(nutrition.karbohidrat || 0),
     serat: Number(nutrition.serat || 0),
-    gula: Number(nutrition.gula || 0),
     is_balanced: isBalanced(nutrition),
   };
+}
+
+function normalizeMaterialName(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
+}
+
+function alignMenuNameWithMethod(name, method) {
+  const cleanName = String(name || "Menu MBG").trim() || "Menu MBG";
+  const cleanMethod = String(method || "kukus").toLowerCase().trim() || "kukus";
+  const methodWords = ["goreng", "tumis", "rebus", "kukus", "bakar"];
+  const wrongWords = methodWords.filter((word) => word !== cleanMethod);
+  let alignedName = cleanName;
+  wrongWords.forEach((word) => {
+    const re = new RegExp(`\b${word}\b`, "gi");
+    alignedName = alignedName.replace(re, cleanMethod);
+  });
+  if (!new RegExp(`\b${cleanMethod}\b`, "i").test(alignedName)) {
+    alignedName = `${cleanMethod.charAt(0).toUpperCase()}${cleanMethod.slice(1)} ${alignedName}`;
+  }
+  return alignedName.replace(/\s+/g, " ").trim();
+}
+
+function enrichGeneratedIngredients(generatedIngredients, sourceIngredients) {
+  const sourceById = new Map();
+  const sourceByName = new Map();
+  (sourceIngredients || []).forEach((item) => {
+    if (item.raw_material_id) sourceById.set(String(item.raw_material_id), item);
+    const key = normalizeMaterialName(item.nama || item.nama_bahan || item.name);
+    if (key) sourceByName.set(key, item);
+  });
+
+  return (generatedIngredients || []).map((item) => {
+    const source =
+      sourceById.get(String(item.raw_material_id || "")) ||
+      sourceByName.get(normalizeMaterialName(item.nama || item.nama_bahan || item.name));
+    return {
+      ...item,
+      nama: item.nama || source?.nama || source?.nama_bahan || source?.name || "Bahan",
+      raw_material_id: item.raw_material_id || source?.raw_material_id || source?.id || null,
+      harga_satuan: Number(item.harga_satuan ?? source?.harga_satuan ?? source?.standard_price ?? 0),
+      qty_available: item.qty_available ?? source?.qty_available ?? null,
+      satuan: item.satuan || source?.satuan || source?.unit || "g",
+    };
+  });
 }
 
 function isBalanced(nutrition, targetKey = "siswa") {
@@ -1022,20 +1065,24 @@ function isBalanced(nutrition, targetKey = "siswa") {
 
 async function generateMenuFromIngredients(
   ingredients,
-  kelompok = "porsi_kecil",
+  kelompok = "Siswa",
   kategori = "Siswa",
+  caraMasak = "kukus",
 ) {
   const apiKey = process.env.GEMINI_API_KEY;
   const canUseGemini = apiKey && apiKey !== "your_gemini_api_key_here";
+  const cleanCaraMasak = String(caraMasak || "kukus").trim().toLowerCase();
 
   const TARGET_GIZI = {
     balita: { kalori: "400-500", protein: "15-20", lemak: "12-18", karbo: "55-70" },
     siswa: { kalori: "550-650", protein: "20-30", lemak: "15-22", karbo: "70-90" },
     ibu_hamil: { kalori: "700-800", protein: "25-35", lemak: "20-28", karbo: "80-100" },
-    porsi_kecil: { kalori: "400-520", protein: "16-22", lemak: "12-18", karbo: "55-72" },
-    porsi_besar: { kalori: "700-850", protein: "28-36", lemak: "20-28", karbo: "85-105" },
+    ibu_menyusui: { kalori: "750-850", protein: "30-38", lemak: "22-30", karbo: "90-110" },
   };
-  const target = TARGET_GIZI[kelompok] || TARGET_GIZI.siswa;
+  const targetKey = String(kategori || kelompok || "Siswa")
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+  const target = TARGET_GIZI[targetKey] || TARGET_GIZI.siswa;
 
   const ingList = ingredients
     .map((i) => `- ${i.nama} (${i.jumlah} ${i.satuan})`)
@@ -1046,15 +1093,17 @@ async function generateMenuFromIngredients(
 BAHAN:
 ${ingList}
 
-TARGET ${kelompok}:
+TARGET PENERIMA ${kategori}:
 - Kalori: ${target.kalori} kkal
 - Protein: ${target.protein} g
 - Lemak: ${target.lemak} g
 - Karbohidrat: ${target.karbo} g
 
-Kategori: ${kategori}
-Metode masak harus dipilih dari goreng, kukus, rebus, bakar, atau tumis.
-Perhitungkan metode masak: goreng biasanya menaikkan kalori/lemak; kukus/rebus lebih rendah lemak; bakar/tumis sedang.
+Kategori penerima: ${kategori}
+Cara masak wajib: ${cleanCaraMasak}
+Nama menu WAJIB memuat kata metode "${cleanCaraMasak}" dan tidak boleh memuat metode lain. Contoh: jika metode tumis, buat "Tumis ...", bukan "Nasi Goreng".
+Buat hanya menu MAKANAN, bukan minuman. Jangan membuat susu, jus, smoothie, teh, atau menu minuman lain. Jika ada bahan susu, perlakukan hanya sebagai catatan bahan tersedia dan jangan jadikan menu minuman.
+Pilih kombinasi bahan baku API yang cocok untuk makanan utama/lauk/sayur. Perhitungkan metode masak: goreng biasanya menaikkan kalori/lemak; kukus/rebus lebih rendah lemak; bakar/tumis sedang.
 
 Balas JSON valid:
 {
@@ -1067,11 +1116,10 @@ Balas JSON valid:
     "protein": number,
     "lemak": number,
     "karbohidrat": number,
-    "serat": number,
-    "gula": number
+    "serat": number
   },
   "bahan_digunakan": [
-    { "nama": "nama bahan", "jumlah": number, "satuan": "satuan", "catatan": "opsional" }
+    { "raw_material_id": "id dari daftar bahan", "nama": "nama bahan", "jumlah": number, "satuan": "satuan", "harga_satuan": number, "catatan": "opsional" }
   ],
   "bahan_kurang": [
     { "nama": "nama bahan", "jumlah_butuh": number, "satuan": "satuan", "alasan": "kenapa dibutuhkan" }
@@ -1089,10 +1137,15 @@ Balas JSON valid:
 
     const result = await model.generateContent(prompt);
     const parsed = extractJsonFromText(result.response.text().trim());
+    const bahanDigunakan = enrichGeneratedIngredients(parsed.bahan_digunakan, ingredients);
     return {
       ...parsed,
+      nama_menu: alignMenuNameWithMethod(parsed.nama_menu, cleanCaraMasak),
+      metode_masak: cleanCaraMasak,
+      bahan_digunakan: bahanDigunakan,
       kelompok,
       kategori,
+      jenis_menu: "makanan",
       generated_at: new Date().toISOString(),
     };
   }
@@ -1112,30 +1165,30 @@ Balas JSON valid:
   };
 
   const fallbackTarget =
-    fallbackByKelompok[kategoriKey] || fallbackByKelompok[kelompok] || fallbackByKelompok.siswa;
+    fallbackByKelompok[targetKey] || fallbackByKelompok[kelompok] || fallbackByKelompok.siswa;
 
   return {
-    nama_menu: `Menu MBG ${kategori} Berbasis Stok`,
+    nama_menu: alignMenuNameWithMethod(`Menu MBG ${kategori} Berbasis Stok`, cleanCaraMasak),
     deskripsi:
-      "Menu rekomendasi sementara dari dummy stock. Aktifkan GEMINI_API_KEY untuk hasil generatif penuh.",
-    metode_masak: "kukus",
+      "Menu makanan rekomendasi sementara dari bahan baku API. Aktifkan GEMINI_API_KEY untuk hasil generatif penuh.",
+    metode_masak: cleanCaraMasak,
     estimasi_gizi: {
       kalori: fallbackTarget.kalori,
       protein: fallbackTarget.protein,
       lemak: fallbackTarget.lemak,
       karbohidrat: fallbackTarget.karbo,
       serat: 6,
-      gula: 5,
     },
-    bahan_digunakan: bahanUtama,
+    bahan_digunakan: enrichGeneratedIngredients(bahanUtama, ingredients),
     bahan_kurang: [],
     tips_gizi:
       "Tambahkan sayur hijau dan buah untuk melengkapi komposisi isi piringku.",
     sesuai_target: true,
     kelompok,
     kategori,
+    jenis_menu: "makanan",
     generated_at: new Date().toISOString(),
-    source: "dummy-fallback",
+    source: "api-material-fallback",
   };
 }
 

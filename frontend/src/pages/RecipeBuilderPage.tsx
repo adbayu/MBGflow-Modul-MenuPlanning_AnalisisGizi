@@ -13,7 +13,6 @@ import {
   CheckCircle2,
   ChefHat,
   Clock3,
-  Database,
   Image as ImageIcon,
   Loader2,
   Plus,
@@ -56,7 +55,12 @@ import {
 
 const API = "http://localhost:3002/api/menu";
 const API_ORIGIN = "http://localhost:3002";
-const KATEGORIS: MenuKategori[] = ["Siswa", "Balita", "Ibu Hamil", "Ibu Menyusui"];
+const KATEGORIS: MenuKategori[] = [
+  "Siswa",
+  "Balita",
+  "Ibu Hamil",
+  "Ibu Menyusui",
+];
 const SATUANS = [
   "g",
   "kg",
@@ -79,11 +83,17 @@ const MENU_PORSI: Array<{ key: MenuPorsi; label: string }> = [
   { key: "porsi_besar", label: "Porsi Besar" },
 ];
 
-type PorsiTarget = "porsi_kecil" | "porsi_besar";
-const PORSI_LABELS: { key: PorsiTarget; label: string }[] = [
-  { key: "porsi_kecil", label: "Porsi Kecil" },
-  { key: "porsi_besar", label: "Porsi Besar" },
+const MATERIAL_CATEGORY_FILTERS = [
+  { key: "semua", label: "Semua", value: "" },
+  { key: "karbo", label: "Karbohidrat", value: "karbo" },
+  { key: "protein", label: "Protein", value: "protein" },
+  { key: "sayur", label: "Sayuran", value: "sayur" },
+  { key: "bumbu", label: "Bumbu", value: "bumbu" },
+  { key: "lainnya", label: "Lainnya", value: "lainnya" },
 ];
+
+const MATERIAL_PLACEHOLDER_IMAGE =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' rx='18' fill='%23ecfdf5'/%3E%3Ccircle cx='40' cy='40' r='18' fill='%232f7d46' opacity='.16'/%3E%3Cpath d='M25 48c12-2 22-12 30-24 2 17-8 29-30 24Z' fill='%232f7d46'/%3E%3C/svg%3E";
 
 interface RecipeBuilderPageProps {
   onNavigate: (p: PageView) => void;
@@ -109,6 +119,7 @@ interface RawMaterialOption {
   category: string;
   unit: string;
   standard_price: number;
+  image_url?: string | null;
   quality_status?: string;
   availability?: {
     qty_available: number;
@@ -117,8 +128,8 @@ interface RawMaterialOption {
   } | null;
 }
 
+
 const MANUAL_MACRO_OPTIONS = [
-  { nama: "Serat", satuan: "g", note: "Bantu pencernaan dan rasa kenyang lebih lama." },
   { nama: "Gula", satuan: "g", note: "Pantau gula sederhana agar menu tidak berlebih." },
   { nama: "Omega-3", satuan: "g", note: "Lemak sehat dari ikan, telur, atau biji-bijian." },
   { nama: "Omega-6", satuan: "g", note: "Asam lemak esensial dari minyak nabati dan kacang." },
@@ -165,12 +176,9 @@ const emptyNut: MenuNutrition = {
   lemak: 0,
   karbohidrat: 0,
   serat: 0,
-  gula: 0,
 };
 
-function createMacroRow(
-  seed?: Partial<ManualMacronutrient>,
-): ManualMacroFormRow {
+function createMacroRow(seed?: Partial<ManualMacronutrient>): ManualMacroFormRow {
   return {
     rowId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     nama: seed?.nama || "",
@@ -201,10 +209,8 @@ function normalizeNutrition(
     lemak: toNumber(input?.lemak),
     karbohidrat: toNumber(input?.karbohidrat),
     serat: toNumber(input?.serat),
-    gula: toNumber(input?.gula),
   };
 }
-
 
 function convertIngredientCost(
   jumlah: number,
@@ -247,13 +253,18 @@ export default function RecipeBuilderPage({
   const [rawMaterials, setRawMaterials] = useState<RawMaterialOption[]>([]);
   const [rawMaterialLoading, setRawMaterialLoading] = useState(false);
   const [rawMaterialError, setRawMaterialError] = useState<string | null>(null);
-  const [ingredients, setIngredients] = useState<MenuIngredient[]>([
-    { ...emptyIng },
-  ]);
+  const [materialModalOpen, setMaterialModalOpen] = useState(false);
+  const [materialSearch, setMaterialSearch] = useState("");
+  const [materialCategory, setMaterialCategory] = useState("semua");
+  const [materialUnit, setMaterialUnit] = useState("semua");
+  const [materialStockStatus, setMaterialStockStatus] = useState("semua");
+  const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
+  const [ingredients, setIngredients] = useState<MenuIngredient[]>([]);
   const [nutrition, setNutrition] = useState<MenuNutrition>({ ...emptyNut });
   const [manualMacros, setManualMacros] = useState<ManualMacroFormRow[]>([]);
   const [macroPickerRowId, setMacroPickerRowId] = useState<string | null>(null);
   const [macroSearch, setMacroSearch] = useState("");
+  const [aiIngredientWarnings, setAiIngredientWarnings] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{
     type: "success" | "error";
@@ -273,13 +284,11 @@ export default function RecipeBuilderPage({
   const [uploadingImage, setUploadingImage] = useState(false);
 
   // AI Generate state
-  const [aiKelompok, setAiKelompok] = useState<PorsiTarget>("porsi_kecil");
-  const [aiIngText, setAiIngText] = useState("");
+  const [aiKelompok, setAiKelompok] = useState<MenuKategori>("Siswa");
+  const [aiCaraMasak, setAiCaraMasak] = useState("kukus");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState<GeneratedMenu | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [stockLoading, setStockLoading] = useState(false);
-
 
   useEffect(() => {
     let cancelled = false;
@@ -287,12 +296,21 @@ export default function RecipeBuilderPage({
       setRawMaterialLoading(true);
       setRawMaterialError(null);
       try {
-        const res = await fetch(`${API}/raw-materials?status=active&include=availability&kitchen_id=k-1`);
+        const res = await fetch(
+          `${API}/raw-materials?status=active&include=availability&kitchen_id=k-1`,
+        );
         const data = await res.json();
-        if (!res.ok) throw new Error(data.message || data.error || "Gagal memuat bahan baku");
-        if (!cancelled) setRawMaterials(Array.isArray(data.data) ? data.data : []);
+        if (!res.ok)
+          throw new Error(
+            data.message || data.error || "Gagal memuat bahan baku",
+          );
+        if (!cancelled)
+          setRawMaterials(Array.isArray(data.data) ? data.data : []);
       } catch (err: unknown) {
-        if (!cancelled) setRawMaterialError(err instanceof Error ? err.message : "Gagal memuat bahan baku");
+        if (!cancelled)
+          setRawMaterialError(
+            err instanceof Error ? err.message : "Gagal memuat bahan baku",
+          );
       } finally {
         if (!cancelled) setRawMaterialLoading(false);
       }
@@ -336,7 +354,8 @@ export default function RecipeBuilderPage({
               harga_satuan: toNumber(item.harga_satuan),
               unit_snapshot: item.unit_snapshot || item.satuan,
               quality_status_snapshot: item.quality_status_snapshot || null,
-              availability_status_snapshot: item.availability_status_snapshot || null,
+              availability_status_snapshot:
+                item.availability_status_snapshot || null,
               qty_available: item.qty_available ?? null,
             }))
           : [];
@@ -354,11 +373,7 @@ export default function RecipeBuilderPage({
         setManualMacros(
           Array.isArray(menu.manual_macronutrients)
             ? menu.manual_macronutrients.map((item) =>
-                createMacroRow({
-                  nama: item.nama,
-                  nilai: item.nilai,
-                  satuan: item.satuan,
-                }),
+                createMacroRow({ nama: item.nama, nilai: item.nilai, satuan: item.satuan }),
               )
             : [],
         );
@@ -378,7 +393,7 @@ export default function RecipeBuilderPage({
 
         setMenuType(resolvedType);
         setMenuPorsi(resolvedPorsi);
-        setAiKelompok(resolvedPorsi);
+        setAiKelompok(menu.kategori || "Siswa");
 
         const snapshot: OriginalMenuSnapshot = {
           nama: cleanName,
@@ -403,10 +418,6 @@ export default function RecipeBuilderPage({
       })
       .finally(() => setLoadingEdit(false));
   }, []);
-
-  useEffect(() => {
-    setAiKelompok(menuPorsi);
-  }, [menuPorsi]);
 
   const isEditMode = editingMenuId !== null;
 
@@ -478,7 +489,6 @@ export default function RecipeBuilderPage({
       "lemak",
       "karbohidrat",
       "serat",
-      "gula",
     ];
 
     nutrientFields.forEach((key) => {
@@ -493,8 +503,6 @@ export default function RecipeBuilderPage({
   };
 
   // Ingredient handlers
-  const addIng = () => setIngredients([...ingredients, { ...emptyIng }]);
-
   const removeIng = (i: number) => {
     if (ingredients.length > 1) {
       setIngredients(ingredients.filter((_, idx) => idx !== i));
@@ -511,30 +519,104 @@ export default function RecipeBuilderPage({
     setIngredients(updated);
   };
 
-  const selectRawMaterial = (i: number, rawMaterialId: string) => {
-    const selected = rawMaterials.find((item) => item.id === rawMaterialId);
-    const updated = [...ingredients];
-    if (!selected) {
-      updated[i] = { ...updated[i], raw_material_id: null };
-    } else {
-      updated[i] = {
-        ...updated[i],
-        raw_material_id: selected.id,
-        nama_bahan: selected.name,
-        satuan: selected.unit,
-        harga_satuan: selected.standard_price || 0,
-        unit_snapshot: selected.unit,
-        quality_status_snapshot: selected.quality_status || null,
-        availability_status_snapshot: selected.availability?.status || null,
-        qty_available: selected.availability?.qty_available ?? null,
-      };
+  const existingMaterialIds = useMemo(
+    () =>
+      new Set(
+        ingredients
+          .map((item) => item.raw_material_id)
+          .filter(Boolean) as string[],
+      ),
+    [ingredients],
+  );
+
+  const materialUnits = useMemo(
+    () =>
+      Array.from(
+        new Set(rawMaterials.map((item) => item.unit).filter(Boolean)),
+      ).sort(),
+    [rawMaterials],
+  );
+
+  const filteredRawMaterials = useMemo(() => {
+    const search = materialSearch.trim().toLowerCase();
+    const categoryValue =
+      MATERIAL_CATEGORY_FILTERS.find((item) => item.key === materialCategory)
+        ?.value || "";
+    return rawMaterials.filter((material) => {
+      const matchesSearch =
+        !search || material.name.toLowerCase().includes(search);
+      const matchesCategory =
+        !categoryValue || material.category === categoryValue;
+      const matchesUnit =
+        materialUnit === "semua" || material.unit === materialUnit;
+      const status = material.availability?.status || "unknown";
+      const matchesStock =
+        materialStockStatus === "semua" || status === materialStockStatus;
+      return matchesSearch && matchesCategory && matchesUnit && matchesStock;
+    });
+  }, [
+    materialCategory,
+    materialSearch,
+    materialStockStatus,
+    materialUnit,
+    rawMaterials,
+  ]);
+
+  const toggleMaterialSelection = (materialId: string) => {
+    if (existingMaterialIds.has(materialId)) {
+      setIngredients((prev) => prev.filter((item) => item.raw_material_id !== materialId));
+      return;
     }
-    setIngredients(updated);
+    setSelectedMaterialIds((prev) =>
+      prev.includes(materialId)
+        ? prev.filter((id) => id !== materialId)
+        : [...prev, materialId],
+    );
+  };
+
+  const appendSelectedMaterials = () => {
+    const toAppend = selectedMaterialIds
+      .filter((id) => !existingMaterialIds.has(id))
+      .map((id) => rawMaterials.find((material) => material.id === id))
+      .filter(Boolean) as RawMaterialOption[];
+
+    if (toAppend.length === 0) {
+      setMaterialModalOpen(false);
+      return;
+    }
+
+    setIngredients((prev) => {
+      return [
+        ...prev,
+        ...toAppend.map((material) => ({
+          raw_material_id: material.id,
+          nama_bahan: material.name,
+          jumlah: 1,
+          satuan: material.unit,
+          harga_satuan: material.standard_price || 0,
+          unit_snapshot: material.unit,
+          quality_status_snapshot: material.quality_status || null,
+          availability_status_snapshot: material.availability?.status || null,
+          qty_available: material.availability?.qty_available ?? null,
+        })),
+      ];
+    });
+    setSelectedMaterialIds([]);
+    setMaterialModalOpen(false);
+  };
+
+  const resetMaterialFilters = () => {
+    setMaterialSearch("");
+    setMaterialCategory("semua");
+    setMaterialUnit("semua");
+    setMaterialStockStatus("semua");
   };
 
   // Nutrition handler
   const updateNut = (field: keyof MenuNutrition, val: number) =>
     setNutrition({ ...nutrition, [field]: val });
+
+
 
   const addManualMacro = () => {
     setManualMacros((prev) => [...prev, createMacroRow()]);
@@ -550,9 +632,7 @@ export default function RecipeBuilderPage({
     value: string | number,
   ) => {
     setManualMacros((prev) =>
-      prev.map((item) =>
-        item.rowId === rowId ? { ...item, [field]: value } : item,
-      ),
+      prev.map((item) => (item.rowId === rowId ? { ...item, [field]: value } : item)),
     );
   };
 
@@ -567,12 +647,13 @@ export default function RecipeBuilderPage({
     );
   }, [macroSearch]);
 
-  const selectManualMacro = (rowId: string, option: (typeof MANUAL_MACRO_OPTIONS)[number]) => {
+  const selectManualMacro = (
+    rowId: string,
+    option: (typeof MANUAL_MACRO_OPTIONS)[number],
+  ) => {
     setManualMacros((prev) =>
       prev.map((item) =>
-        item.rowId === rowId
-          ? { ...item, nama: option.nama, satuan: option.satuan }
-          : item,
+        item.rowId === rowId ? { ...item, nama: option.nama, satuan: option.satuan } : item,
       ),
     );
     setMacroPickerRowId(null);
@@ -757,19 +838,10 @@ export default function RecipeBuilderPage({
 
   // AI Generate
   const handleAIGenerate = async () => {
-    const lines = aiIngText.split("\n").filter((l) => l.trim());
-    if (lines.length === 0) {
-      setAiError("Masukkan setidaknya satu bahan");
+    if (!aiCaraMasak.trim()) {
+      setAiError("Masukkan cara masak");
       return;
     }
-
-    const ings = lines.map((line) => {
-      const parts = line.trim().split(/\s+/);
-      const namaBahan = parts[0] || line.trim();
-      const jumlah = parseFloat(parts[1]) || 100;
-      const satuan = parts[2] || "g";
-      return { nama: namaBahan, jumlah, satuan };
-    });
 
     setAiLoading(true);
     setAiError(null);
@@ -780,9 +852,10 @@ export default function RecipeBuilderPage({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ingredients: ings.length > 0 ? ings : undefined,
           kelompok: aiKelompok,
-          kategori,
+          kategori: aiKelompok,
+          cara_masak: aiCaraMasak,
+          kitchen_id: "k-1",
         }),
       });
       const data = await res.json();
@@ -790,56 +863,52 @@ export default function RecipeBuilderPage({
 
       setAiResult(data as GeneratedMenu);
       setNama(sanitizeMenuName(data.nama_menu));
+      setKategori(aiKelompok);
+      setMenuType("makanan");
+      setCaraMemasak(data.metode_masak || aiCaraMasak);
       setNutrition({
         kalori: data.estimasi_gizi.kalori || 0,
         protein: data.estimasi_gizi.protein || 0,
         lemak: data.estimasi_gizi.lemak || 0,
         karbohidrat: data.estimasi_gizi.karbohidrat || 0,
         serat: data.estimasi_gizi.serat || 0,
-        gula: data.estimasi_gizi.gula || 0,
       });
       if (data.bahan_digunakan?.length > 0) {
-        setIngredients(
-          data.bahan_digunakan.map(
-            (b: { nama: string; raw_material_id?: string | null; jumlah: number; satuan: string; harga_satuan?: number }) => ({
-              nama_bahan: b.nama,
-              jumlah: b.jumlah,
-              satuan: b.satuan,
-              raw_material_id: b.raw_material_id || null,
-              harga_satuan: b.harga_satuan || 0,
-              unit_snapshot: b.satuan,
-            }),
-          ),
+        const warnings: string[] = [];
+        const matchedIngredients = data.bahan_digunakan.flatMap(
+          (b: {
+            nama: string;
+            raw_material_id?: string | null;
+            jumlah: number;
+            satuan: string;
+          }) => {
+            const material = rawMaterials.find(
+              (item) => String(item.id) === String(b.raw_material_id || ""),
+            );
+            if (!material) {
+              warnings.push(`${b.nama || b.raw_material_id || "Bahan"} tidak ditemukan di stok.`);
+              return [];
+            }
+            return [{
+              nama_bahan: material.name,
+              jumlah: toNumber(b.jumlah),
+              satuan: b.satuan || material.unit,
+              raw_material_id: material.id,
+              harga_satuan: toNumber(material.standard_price),
+              unit_snapshot: material.unit,
+              quality_status_snapshot: material.quality_status || null,
+              availability_status_snapshot: material.availability?.status || null,
+              qty_available: material.availability?.qty_available ?? null,
+            }];
+          },
         );
+        setAiIngredientWarnings(warnings);
+        if (matchedIngredients.length > 0) setIngredients(matchedIngredients);
       }
     } catch (err: unknown) {
       setAiError(err instanceof Error ? err.message : "Terjadi kesalahan");
     } finally {
       setAiLoading(false);
-    }
-  };
-
-  const useDummyStock = async () => {
-    setStockLoading(true);
-    setAiError(null);
-    try {
-      const res = await fetch(`${API}/dummy-stock`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Gagal memuat dummy stock");
-      const rows = Array.isArray(data.items)
-        ? (data.items as Array<{ nama: string; qty: number; satuan: string }>)
-        : [];
-      setAiIngText(
-        rows
-          .map((item) => `${item.nama} ${item.qty} ${item.satuan}`)
-          .join("\n"),
-      );
-    } catch (err: unknown) {
-      setAiError(
-        err instanceof Error ? err.message : "Gagal memuat dummy stock",
-      );
-    } finally {
-      setStockLoading(false);
     }
   };
 
@@ -943,7 +1012,7 @@ export default function RecipeBuilderPage({
               />
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-gray-700">
                   Kelompok
@@ -1020,6 +1089,23 @@ export default function RecipeBuilderPage({
                   ))}
                 </div>
               </div>
+
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-gray-700">
+                  Metode Memasak
+                </label>
+                <select
+                  value={caraMemasak}
+                  onChange={(e) => setCaraMemasak(e.target.value)}
+                  className="w-full rounded-xl px-3 py-2.5 text-sm"
+                >
+                  <option value="kukus">Kukus</option>
+                  <option value="rebus">Rebus</option>
+                  <option value="tumis">Tumis</option>
+                  <option value="bakar">Bakar</option>
+                  <option value="goreng">Goreng</option>
+                </select>
+              </div>
             </div>
 
             <div className="rounded-[26px] border border-dashed border-forest-200 bg-forest-50/60 p-5">
@@ -1083,12 +1169,17 @@ export default function RecipeBuilderPage({
 
             <div>
               <div className="mb-3 flex items-center justify-between">
-                <label className="text-sm font-semibold text-gray-700">
-                  Bahan
-                </label>
+                <div>
+                  <label className="text-sm font-semibold text-gray-700">
+                    Bahan
+                  </label>
+                  <p className="text-xs text-gray-400">
+                    Bahan hanya dipilih dari API bahan baku agar stok dan harga valid.
+                  </p>
+                </div>
                 <button
                   type="button"
-                  onClick={addIng}
+                  onClick={() => setMaterialModalOpen(true)}
                   className="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-xs"
                 >
                   <Plus className="h-3 w-3" /> Tambah Bahan
@@ -1096,88 +1187,72 @@ export default function RecipeBuilderPage({
               </div>
 
               {rawMaterialLoading && (
-                <p className="mb-2 text-xs text-gray-400">Memuat bahan baku...</p>
+                <p className="mb-2 text-xs text-gray-400">
+                  Memuat bahan baku...
+                </p>
               )}
               {rawMaterialError && (
-                <p className="mb-2 text-xs text-amber-600">{rawMaterialError}</p>
+                <p className="mb-2 text-xs text-amber-600">
+                  {rawMaterialError}
+                </p>
               )}
-              <div className="space-y-2">
-                {ingredients.map((ing, idx) => (
-                  <div
-                    key={idx}
-                    className="grid items-center gap-2"
-                    style={{ gridTemplateColumns: "1.4fr 80px 90px 90px 32px" }}
-                  >
-                    <div className="space-y-1">
+
+              {ingredients.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-gray-400">
+                  Belum ada bahan. Klik Tambah Bahan untuk memilih dari stok.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {ingredients.map((ing, idx) => (
+                    <div
+                      key={`${ing.raw_material_id || ing.nama_bahan}-${idx}`}
+                      className="grid items-center gap-2"
+                      style={{ gridTemplateColumns: "1.4fr 80px 90px 90px 32px" }}
+                    >
+                      <div className="space-y-1 rounded-[16px] bg-slate-50 px-3 py-2.5 text-sm">
+                        <p className="font-semibold text-gray-700">{ing.nama_bahan}</p>
+                        {ing.qty_available !== null && ing.qty_available !== undefined && (
+                          <p className="text-[10px] text-gray-400">
+                            Stok info: {Number(ing.qty_available).toLocaleString("id-ID")} {ing.unit_snapshot || ing.satuan}
+                          </p>
+                        )}
+                      </div>
+                      <input
+                        type="number"
+                        value={ing.jumlah || ""}
+                        onChange={(e) => updateIng(idx, "jumlah", Number(e.target.value))}
+                        placeholder="Qty"
+                        min={0}
+                        step={0.01}
+                        className="rounded-[16px] px-3 py-2.5 text-sm"
+                      />
                       <select
-                        value={ing.raw_material_id || ""}
-                        onChange={(e) => selectRawMaterial(idx, e.target.value)}
-                        className="w-full rounded-[16px] px-3 py-2.5 text-sm"
+                        value={ing.satuan}
+                        onChange={(e) => updateIng(idx, "satuan", e.target.value)}
+                        className="rounded-[16px] px-3 py-2.5 text-sm"
                       >
-                        <option value="">Pilih bahan baku</option>
-                        {rawMaterials.map((material) => (
-                          <option key={material.id} value={material.id}>
-                            {material.name} - {material.unit} - Rp {Number(material.standard_price || 0).toLocaleString("id-ID")}
-                          </option>
+                        {SATUANS.map((unit) => (
+                          <option key={unit} value={unit}>{unit}</option>
                         ))}
                       </select>
                       <input
-                        type="text"
-                        value={ing.nama_bahan}
-                        onChange={(e) =>
-                          updateIng(idx, "nama_bahan", e.target.value)
-                        }
-                        placeholder="Nama bahan manual"
-                        className="w-full rounded-[16px] px-3 py-2 text-xs"
+                        type="number"
+                        value={ing.harga_satuan || ""}
+                        readOnly
+                        placeholder="Harga/satuan"
+                        className="rounded-[16px] bg-gray-50 px-3 py-2.5 text-sm"
                       />
-                      {ing.qty_available !== null && ing.qty_available !== undefined && (
-                        <p className="px-1 text-[10px] text-gray-400">
-                          Stok info: {Number(ing.qty_available).toLocaleString("id-ID")} {ing.unit_snapshot || ing.satuan}
-                        </p>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeIng(idx)}
+                        className="rounded-lg p-1.5 text-emerald-600 transition-colors hover:bg-emerald-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
-                    <input
-                      type="number"
-                      value={ing.jumlah || ""}
-                      onChange={(e) =>
-                        updateIng(idx, "jumlah", Number(e.target.value))
-                      }
-                      placeholder="Qty"
-                      min={0}
-                      step={0.01}
-                      className="rounded-[16px] px-3 py-2.5 text-sm"
-                    />
-                    <select
-                      value={ing.satuan}
-                      onChange={(e) => updateIng(idx, "satuan", e.target.value)}
-                      className="rounded-[16px] px-3 py-2.5 text-sm"
-                    >
-                      {SATUANS.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="number"
-                      value={ing.harga_satuan || ""}
-                      onChange={(e) =>
-                        updateIng(idx, "harga_satuan", Number(e.target.value))
-                      }
-                      placeholder="Harga/satuan"
-                      className="rounded-[16px] px-3 py-2.5 text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeIng(idx)}
-                      disabled={ingredients.length <= 1}
-                      className="rounded-lg p-1.5 text-emerald-600 transition-colors hover:bg-emerald-50 disabled:opacity-30"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
 
               {hppEstimate > 0 && (
                 <div className="mt-3 flex justify-between rounded-xl bg-forest-50 p-3 text-sm">
@@ -1220,20 +1295,7 @@ export default function RecipeBuilderPage({
                       key: "serat" as const,
                       label: "Fiber (g)",
                       icon: (
-                        <NutrientAssetIcon
-                          name="Serat"
-                          className="h-5 w-5"
-                        />
-                      ),
-                    },
-                    {
-                      key: "gula" as const,
-                      label: "Sugar (g)",
-                      icon: (
-                        <NutrientAssetIcon
-                          name="Gula"
-                          className="h-5 w-5"
-                        />
+                        <NutrientAssetIcon name="Serat" className="h-5 w-5" />
                       ),
                     },
                   ] satisfies {
@@ -1266,10 +1328,10 @@ export default function RecipeBuilderPage({
                 <div className="mb-3 flex items-center justify-between">
                   <div>
                     <p className="text-sm font-semibold text-gray-700">
-                      Nutrien Tambahan Manual (Opsional)
+                      Mikronutrien Tambahan (Opsional)
                     </p>
                     <p className="text-xs text-gray-500">
-                      Tambahkan makronutrien dan mikronutrien secara manual.
+                      Tambahkan gula, vitamin, mineral, atau nutrien mikro secara manual.
                     </p>
                   </div>
                   <button
@@ -1278,14 +1340,14 @@ export default function RecipeBuilderPage({
                     className="rounded-xl border border-forest-200 bg-white px-3 py-1.5 text-xs font-semibold text-forest-800 transition-colors hover:bg-forest-50"
                   >
                     <span className="inline-flex items-center gap-1.5">
-                      <Plus className="h-3 w-3" /> Tambah Nutrien
+                      <Plus className="h-3 w-3" /> Tambah Mikronutrien
                     </span>
                   </button>
                 </div>
 
                 {manualMacros.length === 0 ? (
                   <p className="text-xs text-gray-400">
-                    Belum ada nutrien tambahan manual.
+                    Belum ada mikronutrien tambahan.
                   </p>
                 ) : (
                   <div className="space-y-2">
@@ -1305,10 +1367,7 @@ export default function RecipeBuilderPage({
                         >
                           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-forest-50">
                             {item.nama ? (
-                              <NutrientAssetIcon
-                                name={item.nama}
-                                className="h-5 w-5"
-                              />
+                              <NutrientAssetIcon name={item.nama} className="h-5 w-5" />
                             ) : (
                               <Plus className="h-3.5 w-3.5 text-forest-700" />
                             )}
@@ -1320,13 +1379,7 @@ export default function RecipeBuilderPage({
                         <input
                           type="number"
                           value={item.nilai || ""}
-                          onChange={(e) =>
-                            updateManualMacro(
-                              item.rowId,
-                              "nilai",
-                              Number(e.target.value),
-                            )
-                          }
+                          onChange={(e) => updateManualMacro(item.rowId, "nilai", Number(e.target.value))}
                           min={0}
                           step={0.1}
                           placeholder="Nilai"
@@ -1335,13 +1388,7 @@ export default function RecipeBuilderPage({
                         <input
                           type="text"
                           value={item.satuan}
-                          onChange={(e) =>
-                            updateManualMacro(
-                              item.rowId,
-                              "satuan",
-                              e.target.value,
-                            )
-                          }
+                          onChange={(e) => updateManualMacro(item.rowId, "satuan", e.target.value)}
                           placeholder="g"
                           className="rounded-[14px] px-3 py-2.5 text-sm"
                         />
@@ -1452,60 +1499,48 @@ export default function RecipeBuilderPage({
               </h3>
             </div>
             <p className="mb-4 text-xs text-gray-400">
-              Masukkan bahan yang tersedia, AI akan merekomendasikan menu
-              optimal.
+              AI mengambil bahan baku aktif dari API bahan baku. Generator ini
+              hanya membuat menu makanan; menu minuman/susu tetap dibuat ahli
+              gizi.
             </p>
-            <button
-              type="button"
-              onClick={useDummyStock}
-              disabled={stockLoading}
-              className="mb-4 flex w-full items-center justify-center gap-1.5 rounded-xl border border-forest-200 py-2 text-xs font-semibold text-forest-700 hover:bg-forest-50 disabled:opacity-60"
-            >
-              <Database className="h-3.5 w-3.5" />
-              {stockLoading ? "Memuat Dummy Stock..." : "Gunakan Dummy Stock"}
-            </button>
 
             <div className="mb-4">
               <label className="mb-2 block text-xs font-semibold text-gray-600">
-                Target Porsi
+                Cara Masak
               </label>
-              <div className="flex gap-1 rounded-xl bg-forest-50 p-1">
-                {PORSI_LABELS.map((k) => (
-                  <button
-                    key={k.key}
-                    type="button"
-                    onClick={() => {
-                      setAiKelompok(k.key);
-                      setMenuPorsi(k.key);
-                    }}
-                    className={`flex-1 rounded-lg py-1.5 text-[10px] font-semibold transition-all ${
-                      aiKelompok === k.key
-                        ? "bg-forest-900 text-white"
-                        : "text-gray-500 hover:text-forest-700"
-                    }`}
-                  >
-                    {k.label}
-                  </button>
-                ))}
-              </div>
+              <select
+                value={aiCaraMasak}
+                onChange={(e) => setAiCaraMasak(e.target.value)}
+                className="w-full rounded-xl px-3 py-2.5 text-sm"
+              >
+                <option value="kukus">Kukus</option>
+                <option value="rebus">Rebus</option>
+                <option value="tumis">Tumis</option>
+                <option value="bakar">Bakar</option>
+                <option value="goreng">Goreng</option>
+              </select>
             </div>
 
             <div className="mb-4">
               <label className="mb-2 block text-xs font-semibold text-gray-600">
-                Bahan Tersedia
+                Target Penerima
               </label>
-              <textarea
-                value={aiIngText}
-                onChange={(e) => setAiIngText(e.target.value)}
-                placeholder={
-                  "Ayam 200 g\nBayam 100 g\nBeras 150 g\nWortel 80 g"
-                }
-                rows={5}
-                className="w-full resize-none px-3 py-2.5 font-mono text-sm"
-              />
-              <p className="mt-1 text-[10px] text-gray-400">
-                Format: Nama Jumlah Satuan (satu per baris)
-              </p>
+              <div className="grid grid-cols-2 gap-1 rounded-xl bg-forest-50 p-1">
+                {KATEGORIS.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setAiKelompok(item)}
+                    className={`rounded-lg py-1.5 text-[10px] font-semibold transition-all ${
+                      aiKelompok === item
+                        ? "bg-forest-900 text-white"
+                        : "text-gray-500 hover:text-forest-700"
+                    }`}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {aiError && (
@@ -1578,11 +1613,6 @@ export default function RecipeBuilderPage({
                       val: aiResult.estimasi_gizi.serat,
                       unit: "g",
                     },
-                    {
-                      label: "Gula",
-                      val: aiResult.estimasi_gizi.gula,
-                      unit: "g",
-                    },
                   ] as const
                 ).map((n) => (
                   <div
@@ -1603,6 +1633,21 @@ export default function RecipeBuilderPage({
                   </div>
                 ))}
               </div>
+
+
+
+              {aiIngredientWarnings.length > 0 && (
+                <div className="rounded-xl border border-amber-100 bg-amber-50 p-3">
+                  <p className="mb-2 flex items-center gap-1 text-xs font-bold text-amber-700">
+                    <AlertTriangle className="h-3.5 w-3.5" /> Bahan AI Diabaikan
+                  </p>
+                  {aiIngredientWarnings.map((message, i) => (
+                    <p key={i} className="text-[10px] text-amber-600">
+                      ? {message}
+                    </p>
+                  ))}
+                </div>
+              )}
 
               {aiResult.tips_gizi && (
                 <div className="rounded-xl bg-forest-50 p-3 text-xs text-forest-800">
@@ -1627,13 +1672,14 @@ export default function RecipeBuilderPage({
         </div>
       </div>
 
+
       {macroPickerRowId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
           <div className="w-full max-w-lg rounded-[26px] bg-white p-5 shadow-xl">
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-forest-700/80">
-                  Pilih Makronutrien
+                  Pilih Mikronutrien
                 </p>
                 <h3 className="mt-1 text-lg font-bold text-gray-800">
                   Nutrien Manual
@@ -1659,7 +1705,7 @@ export default function RecipeBuilderPage({
               <input
                 value={macroSearch}
                 onChange={(e) => setMacroSearch(e.target.value)}
-                placeholder="Cari omega, vitamin, mineral..."
+                placeholder="Cari gula, omega, vitamin, mineral..."
                 className="w-full py-3 pl-10 pr-4 text-sm"
               />
             </div>
@@ -1675,18 +1721,11 @@ export default function RecipeBuilderPage({
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex min-w-0 gap-3">
                       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-forest-50">
-                        <NutrientAssetIcon
-                          name={option.nama}
-                          className="h-8 w-8"
-                        />
+                        <NutrientAssetIcon name={option.nama} className="h-8 w-8" />
                       </span>
                       <div className="min-w-0">
-                        <p className="text-sm font-bold text-gray-800">
-                          {option.nama}
-                        </p>
-                        <p className="mt-1 text-xs leading-5 text-gray-500">
-                          {option.note}
-                        </p>
+                        <p className="text-sm font-bold text-gray-800">{option.nama}</p>
+                        <p className="mt-1 text-xs leading-5 text-gray-500">{option.note}</p>
                       </div>
                     </div>
                     <span className="rounded-full bg-forest-100 px-2.5 py-1 text-[10px] font-bold text-forest-800">
@@ -1695,6 +1734,250 @@ export default function RecipeBuilderPage({
                   </div>
                 </button>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {materialModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-[28px] bg-white shadow-2xl">
+            <div className="border-b border-gray-100 p-5 sm:p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-ink-800">
+                    Pemilihan Bahan Baku
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Pilih bahan baku untuk recipe builder, lalu atur jumlah dan
+                    satuannya.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMaterialModalOpen(false)}
+                  className="rounded-full p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="mt-5 rounded-[22px] border border-gray-100 bg-white p-4 shadow-sm">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.3fr_0.8fr_0.8fr_0.8fr_auto]">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      value={materialSearch}
+                      onChange={(e) => setMaterialSearch(e.target.value)}
+                      placeholder="Cari bahan baku"
+                      className="w-full rounded-[16px] py-3 pl-10 pr-3 text-sm"
+                    />
+                  </div>
+                  <select
+                    value={materialCategory}
+                    onChange={(e) => setMaterialCategory(e.target.value)}
+                    className="rounded-[16px] px-3 py-3 text-sm"
+                  >
+                    {MATERIAL_CATEGORY_FILTERS.map((item) => (
+                      <option key={item.key} value={item.key}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={materialUnit}
+                    onChange={(e) => setMaterialUnit(e.target.value)}
+                    className="rounded-[16px] px-3 py-3 text-sm"
+                  >
+                    <option value="semua">Semua satuan</option>
+                    {materialUnits.map((unit) => (
+                      <option key={unit} value={unit}>
+                        {unit}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={materialStockStatus}
+                    onChange={(e) => setMaterialStockStatus(e.target.value)}
+                    className="rounded-[16px] px-3 py-3 text-sm"
+                  >
+                    <option value="semua">Semua stok</option>
+                    <option value="available">Tersedia</option>
+                    <option value="low_stock">Stok menipis</option>
+                    <option value="out_of_stock">Kosong</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={resetMaterialFilters}
+                    className="rounded-[16px] border border-forest-100 px-4 py-3 text-sm font-semibold text-forest-700 hover:bg-forest-50"
+                  >
+                    Reset Filter
+                  </button>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {MATERIAL_CATEGORY_FILTERS.map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setMaterialCategory(item.key)}
+                      className={`rounded-full border px-4 py-2 text-xs font-bold transition ${
+                        materialCategory === item.key
+                          ? "border-forest-800 bg-forest-800 text-white"
+                          : "border-gray-100 bg-white text-gray-600 hover:border-forest-200 hover:text-forest-800"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="max-h-[50vh] overflow-y-auto px-5 py-4 sm:px-6">
+              <table className="w-full min-w-[760px] text-left text-sm">
+                <thead className="sticky top-0 z-10 bg-white text-xs uppercase tracking-wide text-gray-400">
+                  <tr className="border-b border-gray-100">
+                    <th className="py-3 pr-4">Nama Bahan</th>
+                    <th className="py-3 pr-4">Kategori</th>
+                    <th className="py-3 pr-4">Satuan</th>
+                    <th className="py-3 pr-4">Harga</th>
+                    <th className="py-3 pr-4">Stok</th>
+                    <th className="py-3 text-right">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRawMaterials.map((material) => {
+                    const isExisting = existingMaterialIds.has(material.id);
+                    const isSelected = selectedMaterialIds.includes(
+                      material.id,
+                    );
+                    const stockStatus =
+                      material.availability?.status || "unknown";
+                    return (
+                      <tr
+                        key={material.id}
+                        className="border-b border-gray-100 last:border-0"
+                      >
+                        <td className="py-3 pr-4">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={
+                                material.image_url || MATERIAL_PLACEHOLDER_IMAGE
+                              }
+                              alt={material.name}
+                              className="h-11 w-11 rounded-xl object-cover"
+                            />
+                            <div>
+                              <p className="font-semibold text-ink-700">
+                                {material.name}
+                              </p>
+                              {(isExisting || isSelected) && (
+                                <p className="text-[10px] font-bold text-forest-700">
+                                  {isExisting ? "Sudah masuk" : "Dipilih"}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 pr-4 capitalize text-gray-600">
+                          {MATERIAL_CATEGORY_FILTERS.find(
+                            (item) => item.value === material.category,
+                          )?.label || material.category}
+                        </td>
+                        <td className="py-3 pr-4 text-gray-600">
+                          {material.unit}
+                        </td>
+                        <td className="py-3 pr-4 text-gray-700">
+                          Rp{" "}
+                          {Number(material.standard_price || 0).toLocaleString(
+                            "id-ID",
+                          )}
+                        </td>
+                        <td className="py-3 pr-4">
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-700">
+                              {material.availability?.qty_available ?? "-"}{" "}
+                              {material.unit}
+                            </span>
+                            <span
+                              className={`rounded-full px-2 py-1 text-[10px] font-bold ${
+                                stockStatus === "available"
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : stockStatus === "low_stock"
+                                    ? "bg-amber-50 text-amber-700"
+                                    : "bg-gray-100 text-gray-500"
+                              }`}
+                            >
+                              {stockStatus === "available"
+                                ? "Tersedia"
+                                : stockStatus === "low_stock"
+                                  ? "Stok Menipis"
+                                  : "Info"}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => toggleMaterialSelection(material.id)}
+                            className={`rounded-xl px-3 py-2 text-xs font-bold transition ${
+                              isExisting
+                                ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                : isSelected
+                                  ? "bg-forest-100 text-forest-800"
+                                  : "bg-forest-800 text-white hover:bg-forest-900"
+                            }`}
+                          >
+                            {isExisting
+                              ? "Hapus"
+                              : isSelected
+                                ? "Batal"
+                                : "+ Tambah"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filteredRawMaterials.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="py-10 text-center text-sm text-gray-400"
+                      >
+                        Tidak ada bahan sesuai filter.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex flex-col gap-3 border-t border-gray-100 p-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <p className="text-xs text-gray-500">
+                Menampilkan {filteredRawMaterials.length} bahan ?{" "}
+                {selectedMaterialIds.length} dipilih
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMaterialModalOpen(false)}
+                  className="rounded-[16px] border border-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-50"
+                >
+                  Tutup
+                </button>
+                <button
+                  type="button"
+                  onClick={appendSelectedMaterials}
+                  disabled={selectedMaterialIds.length === 0}
+                  className="btn-primary px-5 py-2.5 text-sm disabled:opacity-50"
+                >
+                  Tambahkan{" "}
+                  {selectedMaterialIds.length > 0
+                    ? `(${selectedMaterialIds.length})`
+                    : ""}
+                </button>
+              </div>
             </div>
           </div>
         </div>

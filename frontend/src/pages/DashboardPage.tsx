@@ -1466,8 +1466,7 @@ export default function DashboardPage({
     piringkuMenus.forEach((menu) => {
       [
         { name: "Serat", value: Number(menu.serat || 0), unit: "g" },
-        { name: "Gula", value: Number(menu.gula || 0), unit: "g" },
-      ].forEach((item) => {
+              ].forEach((item) => {
         if (item.value <= 0) return;
         const field = ensureField(item.name, item.unit);
         if (field) field.value += item.value;
@@ -1596,8 +1595,7 @@ export default function DashboardPage({
               "karbohidrat",
               "lemak",
               "serat",
-              "gula",
-            ];
+                    ];
             const ai = order.indexOf(a.key);
             const bi = order.indexOf(b.key);
             return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);

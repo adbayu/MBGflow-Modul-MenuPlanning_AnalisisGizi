@@ -627,12 +627,6 @@ function MenuDetailExpanded({ menuId }: { menuId: number }) {
                   unit: "g",
                   color: "text-green-600",
                 },
-                {
-                  label: "Gula",
-                  value: detail.nutrition.gula,
-                  unit: "g",
-                  color: "text-pink-600",
-                },
               ].map((n) => (
                 <div
                   key={n.label}

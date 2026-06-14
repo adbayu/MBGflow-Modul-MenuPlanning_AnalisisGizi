@@ -59,7 +59,6 @@ const emptyNutrition: MenuNutrition = {
   lemak: 0,
   karbohidrat: 0,
   serat: 0,
-  gula: 0,
 };
 
 export default function MenuForm({
@@ -121,7 +120,6 @@ export default function MenuForm({
               lemak: data.nutrition.lemak,
               karbohidrat: data.nutrition.karbohidrat,
               serat: data.nutrition.serat,
-              gula: data.nutrition.gula,
             });
           }
         })
@@ -676,13 +674,6 @@ export default function MenuForm({
                 unit: "g",
                 color: "focus:ring-green-500",
                 icon: "🥬",
-              },
-              {
-                key: "gula" as const,
-                label: "Gula",
-                unit: "g",
-                color: "focus:ring-pink-500",
-                icon: "🍬",
               },
             ].map((field) => (
               <div key={field.key} className="space-y-2">
