@@ -37,7 +37,12 @@ import {
   ProteinIcon,
 } from "../components/icons/NutrientIcons";
 import pregnantImage from "../assets/images/MBG-Posyandu-akuratnews.id_.jpeg";
-import studentsImage from "../assets/images/Sekolah_Dasar.jpeg";
+import sdImage from "../assets/images/SD.jpeg";
+import smaImage from "../assets/images/SMA.jpeg";
+import smaImage2 from "../assets/images/SMA2.jpg";
+import smpImage from "../assets/images/SMP.jpg";
+import smpImage2 from "../assets/images/SMP2.jpeg";
+import studentsImage from "../assets/images/students_17359871.png";
 import type {
   AIAnalysisResult,
   ManualMacronutrient,
@@ -708,6 +713,15 @@ interface DistributionLocation {
 const DISTRIBUTION_LOCATION_IMAGES: Record<string, string> = {
   students: studentsImage,
   pregnant: pregnantImage,
+  sd: sdImage,
+  smp: smpImage,
+  sma: smaImage,
+};
+
+const SCHOOL_LOCATION_IMAGES: Record<string, string[]> = {
+  sd: [sdImage],
+  smp: [smpImage, smpImage2],
+  sma: [smaImage, smaImage2],
 };
 
 const DEFAULT_DISTRIBUTION_LOCATIONS: DistributionLocation[] = [
@@ -771,13 +785,32 @@ const EMPTY_DISTRIBUTION_LOCATION: DistributionLocation = {
 };
 
 function withDistributionImage(location: DistributionLocation) {
+  const schoolImages = getSchoolLocationImages(location.name);
+
   return {
     ...location,
     image:
       location.image ||
+      schoolImages?.[getStableImageIndex(location.name, schoolImages.length)] ||
       DISTRIBUTION_LOCATION_IMAGES[location.image_key || "students"] ||
       studentsImage,
   };
+}
+
+function getSchoolLocationImages(name: string) {
+  const normalizedName = name.toLowerCase();
+  if (/\bsma\b/.test(normalizedName)) return SCHOOL_LOCATION_IMAGES.sma;
+  if (/\bsmp\b/.test(normalizedName)) return SCHOOL_LOCATION_IMAGES.smp;
+  if (/\bsd\b/.test(normalizedName)) return SCHOOL_LOCATION_IMAGES.sd;
+  return null;
+}
+
+function getStableImageIndex(seed: string, length: number) {
+  let hash = 0;
+  for (const char of seed) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+  return hash % length;
 }
 
 function getLocationRecipientLabel(location: DistributionLocation) {
@@ -3153,7 +3186,7 @@ export default function DashboardPage({
                       alt={activeLocation.name}
                       className="h-full w-full object-cover"
                     />
-                    <div className="absolute inset-0 bg-linear-to-r from-white via-white/72 to-white/5" />
+                    <div className="location-image-fade absolute inset-0 bg-linear-to-r from-white via-white/72 to-white/5" />
                   </div>
                 </div>
               </div>
@@ -3827,7 +3860,7 @@ export default function DashboardPage({
                             <ChefHat className="h-10 w-10" />
                           </div>
                         )}
-                        <div className="absolute inset-0 bg-linear-to-t from-black/35 via-black/5 to-transparent" />
+                        <div className="location-card-shade absolute inset-0 bg-linear-to-t from-black/35 via-black/5 to-transparent" />
                         <div className="absolute bottom-2 left-3 flex flex-wrap gap-1.5">
                           <span className="rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-forest-800">
                             {location.type === "sekolah"
