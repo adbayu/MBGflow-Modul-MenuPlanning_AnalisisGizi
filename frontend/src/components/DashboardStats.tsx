@@ -12,8 +12,9 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { MenuStats } from "../types";
+import { MENU_API_URL } from "../config/api";
 
-const API = "http://localhost:3002/api/menu";
+const API = MENU_API_URL;
 
 interface DashboardStatsProps {
   onNavigateToList: () => void;

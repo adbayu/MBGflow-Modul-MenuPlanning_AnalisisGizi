@@ -18,8 +18,9 @@ import {
   FatIcon,
   CarboIcon,
 } from "./icons/NutrientIcons";
+import { MENU_API_URL } from "../config/api";
 
-const API = "http://localhost:3002/api/menu";
+const API = MENU_API_URL;
 
 interface MenuListProps {
   onEdit: (menuId: number) => void;

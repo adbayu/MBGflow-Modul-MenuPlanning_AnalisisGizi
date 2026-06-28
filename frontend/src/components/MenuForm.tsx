@@ -23,8 +23,9 @@ import type {
   MenuNutrition,
   MenuKategori,
 } from "../types";
+import { MENU_API_URL } from "../config/api";
 
-const API = "http://localhost:3002/api/menu";
+const API = MENU_API_URL;
 
 const KATEGORIS: MenuKategori[] = ["Siswa", "Balita", "Ibu Hamil"];
 const SATUANS = [

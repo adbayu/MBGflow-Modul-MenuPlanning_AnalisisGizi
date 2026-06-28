@@ -2,8 +2,9 @@
 import { motion } from "framer-motion";
 import { ArrowRight, Eye, EyeOff, Lock, User } from "lucide-react";
 import mbgFlowLogo from "../assets/svg/MBGflowlogo.svg";
+import { AUTH_API_URL } from "../config/api";
 
-const API = "http://localhost:3002/api/auth";
+const API = AUTH_API_URL;
 
 interface LoginPageProps {
   onLogin: (user: { username: string; role: string; nama: string }) => void;

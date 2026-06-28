@@ -28,9 +28,10 @@ import {
   type MenuType,
   type MenuMetaEntry,
 } from "../utils/menuMeta";
+import { API_BASE_URL, MENU_API_URL } from "../config/api";
 
-const API = "http://localhost:3002/api/menu";
-const API_ORIGIN = "http://localhost:3002";
+const API = MENU_API_URL;
+const API_ORIGIN = API_BASE_URL;
 
 type TabKat =
   | "all"

@@ -14,8 +14,9 @@ import {
   Zap,
 } from "lucide-react";
 import type { Menu, AIAnalysisResult, MenuNutrition } from "../types";
+import { MENU_API_URL } from "../config/api";
 
-const API = "http://localhost:3002/api/menu";
+const API = MENU_API_URL;
 
 async function readJsonResponse<T>(res: Response, fallbackMessage: string) {
   const text = await res.text();

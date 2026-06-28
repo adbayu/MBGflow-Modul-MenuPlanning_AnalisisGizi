@@ -12,8 +12,9 @@ import {
 } from "lucide-react";
 import type { AIAnalysisResult } from "../types";
 import { getCachedAnalysis, setCachedAnalysis } from "../utils/menuMeta";
+import { MENU_API_URL } from "../config/api";
 
-const API = "http://localhost:3002/api/menu";
+const API = MENU_API_URL;
 
 async function readJsonResponse<T>(res: Response, fallbackMessage: string) {
   const text = await res.text();

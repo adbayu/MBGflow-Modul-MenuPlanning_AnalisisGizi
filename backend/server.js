@@ -9,8 +9,48 @@ const authRoutes = require("./routes/auth");
 const app = express();
 const PORT = process.env.PORT || 3002;
 
+const defaultCorsOrigins = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:4173",
+  "http://127.0.0.1:4173",
+];
+
+function getAllowedOrigins() {
+  const configuredOrigins = (process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  return [...defaultCorsOrigins, ...configuredOrigins];
+}
+
+function isOriginAllowed(origin, allowedOrigins) {
+  if (!origin) return true;
+  return allowedOrigins.some((allowedOrigin) => {
+    if (allowedOrigin.includes("*")) {
+      const pattern = new RegExp(
+        `^${allowedOrigin
+          .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+          .replace(/\*/g, ".*")}$`,
+      );
+      return pattern.test(origin);
+    }
+    return origin === allowedOrigin;
+  });
+}
+
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin(origin, callback) {
+      const allowedOrigins = getAllowedOrigins();
+      if (isOriginAllowed(origin, allowedOrigins)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`CORS origin not allowed: ${origin}`));
+    },
+  }),
+);
 app.use(express.json());
 
 // Serve uploaded files statically
